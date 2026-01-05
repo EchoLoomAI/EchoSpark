@@ -1,0 +1,25 @@
+{
+  "name": "echospark",
+  "version": "0.1.0",
+  "description": "EchoSpark - 智能对话引擎：通过 AI 对话点燃回忆火花",
+  "main": "index.js",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/EchoLoomAI/EchoSpark.git"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "ai",
+    "conversation",
+    "dialogue",
+    "memory",
+    "spark",
+    "echo"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {}
+}
