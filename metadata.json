@@ -1,0 +1,7 @@
+{
+  "name": "EchoSpark (回声灵犀)",
+  "description": "An AI-powered life story recorder that transforms voice conversations into beautiful printed books and digital legacies.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}

@@ -1,55 +1,20 @@
-# EchoSpark - 智能对话引擎
+<div align="center">
+<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
+</div>
 
-🔥 **通过 AI 对话点燃回忆火花**
+# Run and deploy your AI Studio app
 
-> **EchoSpark** = **Echo** (回声) + **Spark** (火花)  
-> "Spark" 是火花，寓意通过对话点燃回忆、激发故事。名字轻快，暗示轻松的开始。
+This contains everything you need to run your app locally.
 
-## 📖 项目概述
+View your app in AI Studio: https://ai.studio/apps/drive/1ZUfdBugZjEGBFLpkGOzeDQjwAsbSUxfw
 
-EchoSpark 是 EchoLoom 系列产品中的智能对话引擎，通过 AI 驱动的对话引导，帮助用户唤醒记忆、发掘故事。
+## Run Locally
 
-### 核心功能（规划中）
+**Prerequisites:**  Node.js
 
-- 🎯 **智能引导** - AI 自适应对话策略，引导用户分享故事
-- 💬 **多轮对话** - 支持长时间、多话题的连贯对话
-- 🧠 **记忆管理** - 智能记录和关联对话中的关键信息
-- 🎨 **情感识别** - 识别对话中的情感基调
-- 🔗 **无缝集成** - 与 EchoTale 传记生成系统深度集成
 
-## 🚀 快速开始
-
-> **注意**: 当前项目处于初始化阶段，功能开发中
-
-### 安装依赖
-
-```bash
-npm install
-```
-
-### 启动服务
-
-```bash
-npm start
-```
-
-## 🏗️ 技术架构
-
-- **对话引擎**: 基于大语言模型的智能对话系统
-- **状态管理**: 多轮对话上下文维护
-- **API 接口**: RESTful API 设计
-- **数据存储**: 对话历史和用户数据管理
-
-## 🔗 相关项目
-
-- [EchoTale](https://github.com/EchoLoomAI/EchoTale) - AI 传记生成服务
-- [EchoHub](https://github.com/EchoLoomAI/EchoHub) - 生态中枢平台
-- [EchoLegacy](https://github.com/EchoLoomAI/EchoLegacy) - 数字遗产管理
-
-## 📄 许可证
-
-MIT
-
----
-
-Made with ❤️ by EchoLoomAI Team
+1. Install dependencies:
+   `npm install`
+2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
+3. Run the app:
+   `npm run dev`
