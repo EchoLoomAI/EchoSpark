@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { GoogleGenAI, LiveServerMessage, Modality } from '@google/genai';
+import { getGeminiApiKey } from '../utils/config';
 
 interface Props {
   onBack: () => void;
@@ -17,6 +18,7 @@ const CasualChat: React.FC<Props> = ({ onBack }) => {
   const [status, setStatus] = useState<'connecting' | 'listening' | 'speaking' | 'error'>('connecting');
   const [isMuted, setIsMuted] = useState(false);
   const [volume, setVolume] = useState(0);
+  const [vad, setVad] = useState(50);
   
   // Chat History State
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -44,7 +46,7 @@ const CasualChat: React.FC<Props> = ({ onBack }) => {
   const startSession = async () => {
     try {
       setStatus('connecting');
-      const apiKey = process.env.API_KEY;
+      const apiKey = getGeminiApiKey();
       if (!apiKey) {
         setStatus('error');
         setMessages(prev => [...prev, { id: 'err', role: 'ai', text: "API Key 未配置", isFinal: true }]);
@@ -74,6 +76,11 @@ const CasualChat: React.FC<Props> = ({ onBack }) => {
             scriptProcessor.onaudioprocess = (e) => {
               if (isMuted) return;
               const inputData = e.inputBuffer.getChannelData(0);
+              let sum = 0;
+              for (let i = 0; i < inputData.length; i++) sum += inputData[i] * inputData[i];
+              const rms = Math.sqrt(sum / inputData.length);
+              const level = Math.min(100, Math.max(0, Math.round(rms * 200)));
+              if (level < vad) return;
               const pcmBlob = createBlob(inputData);
               sessionPromise.then(session => session.sendRealtimeInput({ media: pcmBlob }));
             };
@@ -342,6 +349,20 @@ const CasualChat: React.FC<Props> = ({ onBack }) => {
            >
              <span className="material-symbols-outlined text-2xl">keyboard</span>
            </button>
+        </div>
+        <div className="w-full max-w-xs mx-auto mt-6">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs text-slate-500">VAD 灵敏度</span>
+            <span className="text-xs text-slate-700">{vad}</span>
+          </div>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            value={vad}
+            onChange={(e) => setVad(Number(e.target.value))}
+            className="w-full"
+          />
         </div>
       </footer>
     </div>

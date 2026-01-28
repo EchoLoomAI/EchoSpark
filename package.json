@@ -9,14 +9,29 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@agora-js/report": "^4.24.2",
     "@capacitor/android": "^6.2.1",
     "@capacitor/cli": "^6.2.1",
     "@capacitor/core": "^6.2.1",
     "@capacitor/ios": "^6.2.1",
     "@google/genai": "^1.38.0",
+    "@types/js-cookie": "^3.0.6",
+    "@types/lodash": "^4.17.23",
+    "agora-conversational-ai-denoiser": "1.0.0-beta2",
+    "agora-rtc-sdk-ng": "^4.24.2",
+    "agora-rtm": "2.2.3-2",
     "axios": "^1.13.2",
+    "clsx": "^2.1.1",
+    "js-cookie": "^3.0.5",
+    "jszip": "^3.10.1",
+    "lodash": "^4.17.23",
+    "lucide-react": "^0.563.0",
     "react": "^19.2.3",
-    "react-dom": "^19.2.3"
+    "react-dom": "^19.2.3",
+    "sonner": "^2.0.7",
+    "swr": "^2.3.8",
+    "tailwind-merge": "^3.4.0",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

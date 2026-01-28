@@ -73,13 +73,36 @@ const App: React.FC = () => {
     }
   };
 
-  const handleLoginSuccess = (phone: string) => {
-    setUser({ ...user, phoneNumber: phone });
-    setCurrentStep(AppStep.ONBOARDING_VOICE);
+  const handleLoginSuccess = (phone: string, isNewUser: boolean) => {
+    if (isNewUser) {
+      setUser({ phoneNumber: phone });
+      setCurrentStep(AppStep.ONBOARDING_VOICE);
+      return;
+    }
+    let stored: Partial<UserProfile> | null = null;
+    try {
+      if (typeof window !== 'undefined') {
+        const raw = window.localStorage.getItem(`echospark_user_profile_${phone}`);
+        stored = raw ? JSON.parse(raw) : null;
+      }
+    } catch {}
+    if (stored) {
+      setUser({ phoneNumber: phone, ...stored });
+    } else {
+      setUser({ phoneNumber: phone });
+    }
+    setCurrentStep(AppStep.DASHBOARD);
   };
 
   const handleProfileComplete = (profile: Partial<UserProfile>) => {
-    setUser(prev => ({ ...prev, ...profile }));
+    const merged = { ...user, ...profile };
+    setUser(merged);
+    try {
+      if (typeof window !== 'undefined' && merged.phoneNumber) {
+        const key = `echospark_user_profile_${merged.phoneNumber}`;
+        window.localStorage.setItem(key, JSON.stringify(merged));
+      }
+    } catch {}
     setCurrentStep(AppStep.DASHBOARD);
   };
 

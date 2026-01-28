@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { GoogleGenAI, LiveServerMessage, Modality, FunctionDeclaration, Type } from '@google/genai';
+import { getGeminiApiKey } from '../utils/config';
 import { UserProfile } from '../types';
 
 interface Props {
@@ -11,6 +12,7 @@ interface Props {
 const InterviewChat: React.FC<Props> = ({ user, onBack }) => {
   const [status, setStatus] = useState<'connecting' | 'active' | 'paused' | 'error'>('connecting');
   const [isMuted, setIsMuted] = useState(false);
+  const [vad, setVad] = useState(50);
   const [aiTranscript, setAiTranscript] = useState("正在准备访谈提纲...");
   const [userTranscript, setUserTranscript] = useState("");
   const [contextImage, setContextImage] = useState<string | null>(null);
@@ -46,7 +48,7 @@ const InterviewChat: React.FC<Props> = ({ user, onBack }) => {
   const startSession = async () => {
     try {
       setStatus('connecting');
-      const apiKey = process.env.API_KEY;
+      const apiKey = getGeminiApiKey();
       if (!apiKey) {
         setStatus('error');
         setAiTranscript("API Key 未配置");
@@ -83,8 +85,12 @@ const InterviewChat: React.FC<Props> = ({ user, onBack }) => {
             
             scriptProcessor.onaudioprocess = (e) => {
               if (statusRef.current === 'paused' || isMuted) return;
-
               const inputData = e.inputBuffer.getChannelData(0);
+              let sum = 0;
+              for (let i = 0; i < inputData.length; i++) sum += inputData[i] * inputData[i];
+              const rms = Math.sqrt(sum / inputData.length);
+              const level = Math.min(100, Math.max(0, Math.round(rms * 200)));
+              if (level < vad) return;
               const pcmBlob = createBlob(inputData);
               sessionPromise.then(session => {
                   session.sendRealtimeInput({ media: pcmBlob });
@@ -347,6 +353,13 @@ const InterviewChat: React.FC<Props> = ({ user, onBack }) => {
                 </button>
                 <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">结束</span>
             </div>
+         </div>
+         <div className="max-w-xs mx-auto mt-6">
+           <div className="flex items-center justify-between mb-2">
+             <span className="text-xs text-slate-400">VAD 灵敏度</span>
+             <span className="text-xs text-slate-200">{vad}</span>
+           </div>
+           <input type="range" min={0} max={100} value={vad} onChange={(e) => setVad(Number(e.target.value))} className="w-full" />
          </div>
       </footer>
     </div>

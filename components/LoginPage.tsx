@@ -4,10 +4,11 @@ import { sendCode, login } from '../services/api';
 
 interface Props {
   onBack: () => void;
-  onLoginSuccess: (phone: string) => void;
+  onLoginSuccess: (phone: string, isNewUser: boolean) => void;
 }
 
 const LoginPage: React.FC<Props> = ({ onBack, onLoginSuccess }) => {
+  const [countryCode, setCountryCode] = useState('+86');
   const [phone, setPhone] = useState('');
   const [otp, setOtp] = useState(['', '', '', '', '', '']);
   const [agreed, setAgreed] = useState(false);
@@ -38,11 +39,13 @@ const LoginPage: React.FC<Props> = ({ onBack, onLoginSuccess }) => {
     }
   };
 
+  const fullPhone = `${countryCode}${phone}`;
+
   const handleSendOtp = async () => {
     if (phone.length === 11) {
       setIsSendingOtp(true);
       try {
-        const res = await sendCode(phone);
+        const res = await sendCode(fullPhone);
         if (res.data?.code) {
           // Auto-fill for mock provider
           console.log('Mock code:', res.data.code);
@@ -64,8 +67,9 @@ const LoginPage: React.FC<Props> = ({ onBack, onLoginSuccess }) => {
     if (agreed && phone.length === 11 && code.length === 6) {
       setIsLoggingIn(true);
       try {
-        await login(phone, code);
-        onLoginSuccess(phone);
+        const res = await login(fullPhone, code);
+        const isNewUser = !!res?.data?.autoRegistered;
+        onLoginSuccess(fullPhone, isNewUser);
       } catch (error) {
         console.error('Login failed:', error);
         alert('登录失败，请检查验证码');
@@ -99,24 +103,52 @@ const LoginPage: React.FC<Props> = ({ onBack, onLoginSuccess }) => {
         <div className="space-y-6">
           <div className="group transition-all">
             <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">手机号码</label>
-            <div className="relative flex items-center bg-slate-50 border-2 border-transparent group-focus-within:border-primary group-focus-within:bg-white rounded-2xl px-5 h-16 transition-all shadow-sm">
-              <span className="text-xl font-black text-slate-900 font-condensed">+86</span>
-              <div className="w-[1px] h-6 bg-slate-200 mx-4 shrink-0"></div>
+            <div className="relative flex items-center bg-slate-50 border-2 border-transparent group-focus-within:border-primary group-focus-within:bg-white rounded-2xl px-5 h-16 transition-all shadow-sm overflow-hidden">
+              <div className="relative flex items-center shrink-0">
+                <span className="text-xl font-black text-slate-900 font-condensed z-0 flex items-center gap-1">
+                  {countryCode}
+                  <span className="material-symbols-outlined text-slate-400 text-sm">expand_more</span>
+                </span>
+                <select
+                  value={countryCode}
+                  onChange={(e) => setCountryCode(e.target.value)}
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10 font-sans"
+                >
+                  <option value="+86">+86 中国</option>
+                  <option value="+1">+1 美国/加拿大</option>
+                  <option value="+81">+81 日本</option>
+                  <option value="+852">+852 中国香港</option>
+                </select>
+              </div>
+              
+              <div className="w-[1px] h-6 bg-slate-200 mx-3 shrink-0"></div>
+              
               <input
                 type="tel"
                 maxLength={11}
-                placeholder="请输入11位手机号"
+                placeholder="请输入手机号"
                 value={phone}
                 onChange={(e) => setPhone(e.target.value.replace(/\D/g, ''))}
-                className="flex-1 min-w-0 text-xl font-bold bg-transparent border-none focus:ring-0 p-0 placeholder:text-slate-300 font-condensed tracking-wider"
+                className="flex-1 min-w-[8rem] text-xl font-bold bg-transparent border-none focus:ring-0 p-0 placeholder:text-slate-300 font-condensed tracking-wider"
               />
+              
               {phone.length === 11 && (
                 <button
                   onClick={handleSendOtp}
                   disabled={countdown > 0 || isSendingOtp}
-                  className={`ml-4 whitespace-nowrap text-sm font-black transition-colors shrink-0 ${countdown > 0 ? 'text-slate-300' : 'text-primary'}`}
+                  className={`ml-2 px-3 py-1.5 rounded-lg whitespace-nowrap text-sm font-black transition-all shrink-0 active:scale-95 ${
+                    countdown > 0 
+                      ? 'bg-slate-100 text-slate-400' 
+                      : 'bg-primary/10 text-primary hover:bg-primary/20'
+                  }`}
                 >
-                  {isSendingOtp ? '发送中...' : countdown > 0 ? `${countdown}s` : '获取验证码'}
+                  {isSendingOtp ? (
+                    <span className="material-symbols-outlined text-sm animate-spin">progress_activity</span>
+                  ) : countdown > 0 ? (
+                    `${countdown}s`
+                  ) : (
+                    '获取验证码'
+                  )}
                 </button>
               )}
             </div>
