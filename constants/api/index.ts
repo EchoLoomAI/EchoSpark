@@ -40,7 +40,7 @@ export const API_SIP_STATUS = `/api/sip/status`
 
 // --- REMOTE API ---
 
-export const REMOTE_TOKEN_GENERATE = '/v2/token/generate'
+export const REMOTE_TOKEN_GENERATE = '/v2/convoai/token/generate'
 
 export const REMOTE_CONVOAI_AGENT_PRESETS = '/convoai/v5/presets/list'
 export const REMOTE_CONVOAI_AGENT_START = '/convoai/v5/start'

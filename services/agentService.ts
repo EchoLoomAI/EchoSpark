@@ -12,6 +12,14 @@ import {
   API_UPLOAD_LOG,
   ERROR_CODE,
   ERROR_MESSAGE,
+  REMOTE_CONVOAI_AGENT_START,
+  REMOTE_CONVOAI_AGENT_STOP,
+  REMOTE_CONVOAI_AGENT_PING,
+  REMOTE_CONVOAI_AGENT_PRESETS,
+  REMOTE_CONVOAI_GET_CUSTOM_PRESET,
+  REMOTE_TOKEN_GENERATE,
+  REMOTE_UPLOAD_IMAGE,
+  REMOTE_UPLOAD_LOG,
   localOpensourceStartAgentPropertiesSchema,
   localStartAgentPropertiesSchema,
   remoteAgentCustomPresetItem,
@@ -52,6 +60,20 @@ const parseResponse = <T>(response: any, schema: z.ZodType<T>) => {
 export const getAgentPresets = async (options?: TDevModeQuery) => {
   const { devMode, accountUid } = options ?? {}
   const query = generateDevModeQuery({ devMode })
+  const baseURL = (import.meta as any)?.env?.VITE_API_BASE_URL || ''
+  const isRemoteToolbox = baseURL.includes('service.apprtc.cn')
+
+  if (isRemoteToolbox) {
+    const resp = await api.get(REMOTE_CONVOAI_AGENT_PRESETS)
+    const respData = resp.data
+    // Remote returns { code: 0, data: [...], msg: "success" }
+    if (respData.code !== 0) {
+      console.error('Failed to fetch presets:', respData)
+      return []
+    }
+    return respData.data as IAgentPreset[]
+  }
+
   const url = `${API_AGENT_PRESETS}${query}`
 
   if (!accountUid) return null;
@@ -67,16 +89,57 @@ export const getAgentToken = async (
 ) => {
   const { devMode } = options ?? {}
   const query = generateDevModeQuery({ devMode })
-  const url = `${API_TOKEN}${query}`
-  const data = {
+  const baseURL = (import.meta as any)?.env?.VITE_API_BASE_URL || ''
+  const isRemoteToolbox = baseURL.includes('service.apprtc.cn')
+  const payload = {
     request_id: genUUID(),
     uid: userId,
     channel_name: channel ?? ''
   }
 
-  const resp = await api.post(url, data)
-  const resData = localResSchema.parse(resp.data)
-  return resData
+  if (isRemoteToolbox) {
+    const appId =
+      (import.meta as any)?.env?.VITE_AGORA_APP_ID ||
+      (import.meta as any)?.env?.AGORA_APP_ID
+    if (!appId) {
+      throw new Error('AGORA AppId 未配置')
+    }
+    const remoteUrl = `${REMOTE_TOKEN_GENERATE}${query}`
+    // If type is 1 (RTC Int Token), we should try to pass uid as number
+    // We are reverting to Type 1 because some Agent backends do not support String UIDs correctly
+    const numericUid = Number(userId);
+    const requestUid = !isNaN(numericUid) ? numericUid : `${userId}`;
+
+    const resp = await api.post(remoteUrl, {
+      appId: appId,
+      channelName: channel ?? '',
+      uid: requestUid,
+      type: 1,
+      src: 'Web',
+      ts: Date.now().toString()
+    })
+    const respData = resp.data
+    console.log('Token Response:', respData); // Log full response to debug
+    const token = respData?.data?.token
+    const rtmToken = respData?.data?.rtm_token || respData?.data?.token // Try to get rtm_token, fallback to token
+    if (!token) {
+      throw new Error('Token 生成失败')
+    }
+    return {
+      code: respData.code,
+      msg: respData.msg,
+      data: {
+        token,
+        rtmToken, // Return rtmToken
+        appId
+      }
+    }
+  } else {
+    const url = `${API_TOKEN}${query}`
+    const resp = await api.post(url, payload)
+    const resData = localResSchema.parse(resp.data)
+    return resData
+  }
 }
 
 export const startAgent = async (
@@ -85,9 +148,10 @@ export const startAgent = async (
     | typeof localOpensourceStartAgentPropertiesSchema
   >
 ) => {
-  const url = API_AGENT
-  const data = (payload as z.infer<typeof localStartAgentPropertiesSchema>)
-    ?.preset_name
+  const baseURL = (import.meta as any)?.env?.VITE_API_BASE_URL || ''
+  const isRemoteToolbox = baseURL.includes('service.apprtc.cn')
+
+  const data = (payload as z.infer<typeof localStartAgentPropertiesSchema>)?.preset_name
     ? localStartAgentPropertiesSchema.parse(payload)
     : localOpensourceStartAgentPropertiesSchema.parse(payload)
 
@@ -119,6 +183,70 @@ export const startAgent = async (
   }
 
   try {
+    if (isRemoteToolbox) {
+      const appId =
+        (import.meta as any)?.env?.VITE_AGORA_APP_ID ||
+        (import.meta as any)?.env?.AGORA_APP_ID
+      if (!appId) {
+        throw new Error('AGORA AppId 未配置')
+      }
+
+      const basicAuthUsername =
+        (import.meta as any)?.env?.VITE_AGENT_BASIC_AUTH_KEY ||
+        (import.meta as any)?.env?.AGENT_BASIC_AUTH_KEY ||
+        undefined
+      const basicAuthPassword =
+        (import.meta as any)?.env?.VITE_AGENT_BASIC_AUTH_SECRET ||
+        (import.meta as any)?.env?.AGENT_BASIC_AUTH_SECRET ||
+        undefined
+
+      const llmSystemMessages =
+        (opensourceData?.llm?.system_messages &&
+          typeof opensourceData.llm.system_messages !== 'string')
+          ? opensourceData.llm.system_messages
+          : opensourceData?.llm?.system_messages
+            ? JSON.parse(opensourceData.llm.system_messages as unknown as string)
+            : undefined
+
+      const convoaiBody = {
+        properties: {
+          channel: data.channel,
+          token: data.token,
+          agent_rtc_uid: data.agent_rtc_uid,
+          remote_rtc_uids: data.remote_rtc_uids,
+          enable_string_uid: false,
+          advanced_features: (data as any).advanced_features,
+          asr: (data as any).asr,
+          llm: {
+            ...(opensourceData.llm || {}),
+            system_messages: llmSystemMessages
+          },
+          tts: (data as any).tts,
+          avatar: (data as any).avatar,
+          vad: (data as any).vad,
+          sal: (data as any).sal,
+          parameters: (data as any).parameters
+        }
+      }
+
+      const remotePayload = {
+        app_id: appId,
+        basic_auth_username: basicAuthUsername,
+        basic_auth_password: basicAuthPassword,
+        preset_name: (data as any).preset_name || 'default',
+        convoai_body: convoaiBody
+      }
+
+      const resp = await api.post(REMOTE_CONVOAI_AGENT_START, remotePayload)
+      const respData = resp.data
+      const remoteRespSchema = basicRemoteResSchema.extend({
+        data: remoteAgentStartRespDataSchema
+      })
+      const remoteResp = remoteRespSchema.parse(respData)
+      return remoteResp.data
+    }
+
+    const url = API_AGENT
     const resp = await api.post(url, data)
     const respData = resp.data
 
@@ -167,42 +295,56 @@ export const startAgentDev = async (
 }
 
 export const stopAgent = async (
-  payload: z.infer<typeof remoteAgentStopSettingsSchema>,
-  options?: TDevModeQuery
+  payload: z.infer<typeof remoteAgentStopSettingsSchema>
 ) => {
-  const { devMode } = options ?? {}
-  const query = generateDevModeQuery({ devMode })
-  const url = `${API_AGENT_STOP}${query}`
-  const data = remoteAgentStopSettingsSchema.parse(payload)
+  const baseURL = (import.meta as any)?.env?.VITE_API_BASE_URL || ''
+  const isRemoteToolbox = baseURL.includes('service.apprtc.cn')
 
-  const resp = await api.post(url, data)
-  const respData = resp.data
-
-  const remoteRespSchema = basicRemoteResSchema.extend({
-    data: z.any().optional()
-  })
-  const remoteResp = remoteRespSchema.parse(respData)
-  return remoteResp
+  if (isRemoteToolbox) {
+    const remoteUrl = REMOTE_CONVOAI_AGENT_STOP
+    const resp = await api.post(remoteUrl, payload)
+    const respData = basicRemoteResSchema.parse(resp.data)
+    if (respData.code !== 0) {
+      throw new Error(respData.msg)
+    }
+    return respData
+  } else {
+    const url = API_AGENT_STOP
+    const resp = await api.post(url, payload)
+    const resData = localResSchema.parse(resp.data)
+    return resData
+  }
 }
 
-const pingAgentReqSchema = remoteAgentPingReqSchema.omit({ app_id: true })
-export const pingAgent = async (
-  payload: z.infer<typeof pingAgentReqSchema>,
-  options?: TDevModeQuery
+export const heartbeat = async (
+  payload: z.infer<typeof remoteAgentPingReqSchema>
 ) => {
-  const { devMode } = options ?? {}
-  const query = generateDevModeQuery({ devMode })
-  const url = `${API_AGENT_PING}${query}`
-  const data = pingAgentReqSchema.parse(payload)
+  const baseURL = (import.meta as any)?.env?.VITE_API_BASE_URL || ''
+  const isRemoteToolbox = baseURL.includes('service.apprtc.cn')
 
-  const resp = await api.post(url, data)
-  const respData = resp.data
-
-  const remoteRespSchema = basicRemoteResSchema.extend({
-    data: z.any().optional()
-  })
-  const remoteResp = remoteRespSchema.parse(respData)
-  return remoteResp.data
+  if (isRemoteToolbox) {
+    const appId =
+      (import.meta as any)?.env?.VITE_AGORA_APP_ID ||
+      (import.meta as any)?.env?.AGORA_APP_ID
+    if (!appId) {
+      throw new Error('AGORA AppId 未配置')
+    }
+    const remoteUrl = REMOTE_CONVOAI_AGENT_PING
+    const resp = await api.post(remoteUrl, {
+      ...payload,
+      app_id: appId
+    })
+    const respData = basicRemoteResSchema.parse(resp.data)
+    if (respData.code !== 0) {
+      throw new Error(respData.msg)
+    }
+    return respData
+  } else {
+    const url = API_AGENT_PING
+    const resp = await api.post(url, payload)
+    const resData = basicRemoteResSchema.parse(resp.data)
+    return resData
+  }
 }
 
 export const uploadImage = async ({
@@ -221,7 +363,11 @@ export const uploadImage = async ({
   formData.append('channel_name', channel_name)
   formData.append('request_id', genUUID())
 
-  const resp = await api.post(API_UPLOAD_IMAGE, formData, {
+  const baseURL = (import.meta as any)?.env?.VITE_API_BASE_URL || ''
+  const isRemoteToolbox = baseURL.includes('service.apprtc.cn')
+  const url = isRemoteToolbox ? REMOTE_UPLOAD_IMAGE : API_UPLOAD_IMAGE
+
+  const resp = await api.post(url, formData, {
     headers: {
       'Content-Type': 'multipart/form-data'
     }
@@ -266,6 +412,25 @@ export const uploadFile = async (
 }
 
 export const retrievePresetById = async (id: string) => {
+  const baseURL = (import.meta as any)?.env?.VITE_API_BASE_URL || ''
+  const isRemoteToolbox = baseURL.includes('service.apprtc.cn')
+
+  if (isRemoteToolbox) {
+    const url = `${REMOTE_CONVOAI_GET_CUSTOM_PRESET}?customPresetIds=${id}`
+    const resp = await api.get(url)
+    const respData = resp.data
+
+    if (respData.code === ERROR_CODE.PRESET_DEPRECATED) {
+      throw new Error(ERROR_MESSAGE.PRESET_DEPRECATED)
+    }
+
+    const remoteRespSchema = basicRemoteResSchema.extend({
+      data: z.array(remoteAgentCustomPresetItem)
+    })
+    const remoteResp = remoteRespSchema.parse(respData)
+    return remoteResp.data
+  }
+
   const url = `${API_AGENT_CUSTOM_PRESET}?customPresetIds=${id}`
   const resp = await api.get(url)
   const respData = resp.data
@@ -287,7 +452,11 @@ export const uploadLog = async ({ content, file }: IUploadLogInput) => {
     formData.append('file', file, file.name)
   }
   formData.append('content', JSON.stringify(content))
-  const url = `${API_UPLOAD_LOG}`
+
+  const baseURL = (import.meta as any)?.env?.VITE_API_BASE_URL || ''
+  const isRemoteToolbox = baseURL.includes('service.apprtc.cn')
+  const url = isRemoteToolbox ? REMOTE_UPLOAD_LOG : API_UPLOAD_LOG
+
   const resp = await api.post(url, formData, {
     headers: {
       'Content-Type': 'multipart/form-data'

@@ -2,8 +2,8 @@ import { isCN } from '@/lib/utils'
 
 export const LOCAL_SETTINGS_KEY = `SETTINGS-${isCN ? 'CN' : 'GLOBAL'}-CONVOAI`
 export const HEARTBEAT_INTERVAL = 1000 * 10
-export const FIRST_START_TIMEOUT = 1000 * 30
-export const FIRST_START_TIMEOUT_DEV = 1000 * 30 // 30s for dev
+export const FIRST_START_TIMEOUT = 1000 * 60
+export const FIRST_START_TIMEOUT_DEV = 1000 * 60 // 60s for dev
 export const AGENT_RECONNECT_TIMEOUT = 1000 * 120
 export const DEFAULT_CONVERSATION_DURATION = 60 * 10 // 10 minutes
 

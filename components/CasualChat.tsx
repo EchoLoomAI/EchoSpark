@@ -1,7 +1,8 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { GoogleGenAI, LiveServerMessage, Modality } from '@google/genai';
-import { getGeminiApiKey } from '../utils/config';
+import { useVoiceAgent } from '../hooks/useVoiceAgent';
+import { EMessageType, ETurnStatus } from '../conversational-ai-api';
+import { Mic, MicOff, PhoneOff, X, Globe, User, Settings2 } from 'lucide-react';
 
 interface Props {
   onBack: () => void;
@@ -15,393 +16,193 @@ interface ChatMessage {
 }
 
 const CasualChat: React.FC<Props> = ({ onBack }) => {
-  const [status, setStatus] = useState<'connecting' | 'listening' | 'speaking' | 'error'>('connecting');
-  const [isMuted, setIsMuted] = useState(false);
-  const [volume, setVolume] = useState(0);
-  const [vad, setVad] = useState(50);
-  
-  // Chat History State
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [currentInput, setCurrentInput] = useState("");
-  const [currentOutput, setCurrentOutput] = useState("");
+  const [currentAiChunk, setCurrentAiChunk] = useState("");
+  const [currentUserChunk, setCurrentUserChunk] = useState("");
+  const [showSubtitles, setShowSubtitles] = useState(true);
 
-  // Refs
-  const inputAudioContextRef = useRef<AudioContext | null>(null);
-  const outputAudioContextRef = useRef<AudioContext | null>(null);
-  const nextStartTimeRef = useRef(0);
-  const sourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
-  const streamRef = useRef<MediaStream | null>(null);
-  const analyserRef = useRef<AnalyserNode | null>(null);
-  const animationFrameRef = useRef<number | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const sessionRef = useRef<any>(null);
 
-  // Auto-scroll to bottom
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [messages, currentInput, currentOutput]);
+  const {
+    startSession,
+    stopSession,
+    interrupt,
+    toggleMute,
+    connectionStatus,
+    agentState,
+    isMuted
+  } = useVoiceAgent({
+    onMessage: (items) => {
+      const userItems = items.filter((item: any) => {
+        const metadata = item.metadata as | { object?: EMessageType } | null | undefined;
+        return metadata?.object === EMessageType.USER_TRANSCRIPTION;
+      });
+      const agentItems = items.filter((item: any) => {
+        const metadata = item.metadata as | { object?: EMessageType } | null | undefined;
+        if (metadata && typeof metadata.object !== 'undefined') {
+          return metadata.object === EMessageType.AGENT_TRANSCRIPTION;
+        }
+        return true;
+      });
 
-  const startSession = async () => {
-    try {
-      setStatus('connecting');
-      const apiKey = getGeminiApiKey();
-      if (!apiKey) {
-        setStatus('error');
-        setMessages(prev => [...prev, { id: 'err', role: 'ai', text: "API Key 未配置", isFinal: true }]);
-        return;
-      }
+      const latestUser = userItems[userItems.length - 1];
+      const latestAgent = agentItems[agentItems.length - 1];
 
-      const ai = new GoogleGenAI({ apiKey });
-      
-      // Init Audio
-      inputAudioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
-      outputAudioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
-      analyserRef.current = outputAudioContextRef.current.createAnalyser();
-      analyserRef.current.fftSize = 32;
-      
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      streamRef.current = stream;
-
-      const sessionPromise = ai.live.connect({
-        model: 'gemini-2.5-flash-native-audio-preview-12-2025',
-        callbacks: {
-          onopen: () => {
-            setStatus('listening');
-            // Audio Input Stream
-            const source = inputAudioContextRef.current!.createMediaStreamSource(stream);
-            const scriptProcessor = inputAudioContextRef.current!.createScriptProcessor(4096, 1, 1);
-            
-            scriptProcessor.onaudioprocess = (e) => {
-              if (isMuted) return;
-              const inputData = e.inputBuffer.getChannelData(0);
-              let sum = 0;
-              for (let i = 0; i < inputData.length; i++) sum += inputData[i] * inputData[i];
-              const rms = Math.sqrt(sum / inputData.length);
-              const level = Math.min(100, Math.max(0, Math.round(rms * 200)));
-              if (level < vad) return;
-              const pcmBlob = createBlob(inputData);
-              sessionPromise.then(session => session.sendRealtimeInput({ media: pcmBlob }));
-            };
-            
-            source.connect(scriptProcessor);
-            scriptProcessor.connect(inputAudioContextRef.current!.destination);
-          },
-          onmessage: async (message: LiveServerMessage) => {
-            // 1. Handle Audio Output
-            if (message.serverContent?.modelTurn?.parts?.[0]?.inlineData) {
-              setStatus('speaking');
-              const base64Audio = message.serverContent.modelTurn.parts[0].inlineData.data;
-              playAudio(base64Audio);
-            }
-
-            // 2. Handle Transcriptions
-            if (message.serverContent?.outputTranscription) {
-                const text = message.serverContent.outputTranscription.text;
-                setCurrentOutput(prev => prev + text);
-            }
-            if (message.serverContent?.inputTranscription) {
-                const text = message.serverContent.inputTranscription.text;
-                setCurrentInput(prev => prev + text);
-            }
-
-            // 3. Handle Turn Complete (Commit text to history)
-            if (message.serverContent?.turnComplete) {
-              setStatus('listening');
-              
-              // Commit User Text if exists
-              setCurrentInput(prev => {
-                if (prev.trim()) {
-                    setMessages(curr => [...curr, { id: Date.now() + 'u', role: 'user', text: prev, isFinal: true }]);
-                }
-                return "";
-              });
-
-              // Commit AI Text if exists
-              setCurrentOutput(prev => {
-                if (prev.trim()) {
-                    setMessages(curr => [...curr, { id: Date.now() + 'a', role: 'ai', text: prev, isFinal: true }]);
-                }
-                return "";
-              });
-            }
-
-            // 4. Handle Interruption
-            if (message.serverContent?.interrupted) {
-                // Stop audio
-                sourcesRef.current.forEach(s => s.stop());
-                sourcesRef.current.clear();
-                nextStartTimeRef.current = 0;
-                setStatus('listening');
-
-                // Commit whatever AI said so far
-                setCurrentOutput(prev => {
-                    if (prev.trim()) {
-                        setMessages(curr => [...curr, { id: Date.now() + 'a_int', role: 'ai', text: prev, isFinal: true }]);
-                    }
-                    return "";
-                });
-            }
-          },
-          onerror: (e) => {
-            console.error(e);
-            setStatus('error');
-          },
-          onclose: () => {
-            console.log("Session closed");
+      if (latestUser) {
+        if (latestUser.status === ETurnStatus.IN_PROGRESS) {
+          setCurrentUserChunk(latestUser.text);
+          // Auto-interrupt agent when user starts speaking
+          if (agentState === 'speaking') {
+            interrupt();
           }
-        },
-        config: {
-          responseModalities: [Modality.AUDIO],
-          inputAudioTranscription: {},
-          outputAudioTranscription: {},
-          systemInstruction: `
-            你是一个轻松、幽默、富有同理心的聊天伙伴，名字叫“灵犀”。
-            
-            【关键指令】：
-            1. 连接建立后，你必须**立刻**主动向用户打招呼，例如：“嘿，我是灵犀！今天心情怎么样？或者想聊聊什么有趣的事？”
-            2. 就像老朋友一样聊天，回答简短自然，口语化，不要长篇大论。
-            3. 如果用户沉默，你可以主动抛出轻松的话题（如美食、旅行、梦想）。
-          `,
-          speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Puck' } } }
+        } else {
+          setCurrentUserChunk("");
+          setMessages(prev => {
+            const id = `user-${latestUser.turn_id}`;
+            if (prev.some(m => m.id === id)) return prev;
+            return [...prev, { id, role: 'user', text: latestUser.text, isFinal: true }];
+          });
         }
-      });
-
-      sessionPromise.then(sess => {
-        sessionRef.current = sess;
-      });
-
-      sessionPromise.catch(err => {
-        console.error("Connection failed", err);
-        setStatus('error');
-      });
-
-    } catch (err) {
-      console.error(err);
-      setStatus('error');
-    }
-  };
-
-  const playAudio = async (base64Audio: string) => {
-    if (!outputAudioContextRef.current) return;
-    const ctx = outputAudioContextRef.current;
-    
-    try {
-      const audioBuffer = await decodeAudioData(decode(base64Audio), ctx, 24000, 1);
-      const source = ctx.createBufferSource();
-      source.buffer = audioBuffer;
-      
-      if (analyserRef.current) {
-        source.connect(analyserRef.current);
-        analyserRef.current.connect(ctx.destination);
-      } else {
-        source.connect(ctx.destination);
       }
 
-      nextStartTimeRef.current = Math.max(nextStartTimeRef.current, ctx.currentTime);
-      source.start(nextStartTimeRef.current);
-      nextStartTimeRef.current += audioBuffer.duration;
-      sourcesRef.current.add(source);
-      
-      source.onended = () => {
-        sourcesRef.current.delete(source);
-        if (sourcesRef.current.size === 0) {
-            setTimeout(() => setStatus(prev => prev === 'speaking' ? 'listening' : prev), 200);
+      if (latestAgent) {
+        if (latestAgent.status === ETurnStatus.IN_PROGRESS) {
+          setCurrentAiChunk(latestAgent.text);
+        } else {
+          setCurrentAiChunk("");
+          setMessages(prev => {
+            const id = `ai-${latestAgent.turn_id}`;
+            if (prev.some(m => m.id === id)) return prev;
+            return [...prev, { id, role: 'ai', text: latestAgent.text, isFinal: true }];
+          });
         }
-      };
-    } catch (e) {
-      console.error("Audio play error", e);
-    }
-  };
-
-  // Visualization Loop
-  useEffect(() => {
-    const updateVolume = () => {
-      if (analyserRef.current && status === 'speaking') {
-        const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount);
-        analyserRef.current.getByteFrequencyData(dataArray);
-        const avg = dataArray.reduce((a, b) => a + b) / dataArray.length;
-        setVolume(avg);
-      } else {
-         const time = Date.now() / 1000;
-         setVolume(20 + Math.sin(time * 2) * 5); 
       }
-      animationFrameRef.current = requestAnimationFrame(updateVolume);
-    };
-    updateVolume();
-    return () => {
-      if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+    },
+    onAgentStateChange: (state) => {
+      // console.log("Agent state:", state);
     }
-  }, [status]);
+  });
 
   useEffect(() => {
-    startSession();
+    startSession("你是EchoSpark的智能助手，请用简短、亲切的语言与用户交谈。");
     return () => {
-      inputAudioContextRef.current?.close();
-      outputAudioContextRef.current?.close();
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach(track => track.stop());
-      }
-      sessionRef.current?.close();
+      stopSession();
     };
-  }, []);
+  }, [startSession, stopSession]);
+
+  const handleHangup = () => {
+    stopSession();
+    onBack();
+  };
+
+  // Orb Animation based on agentState
+  const getOrbStyle = () => {
+    switch (agentState) {
+      case 'listening':
+        return 'animate-pulse scale-110 border-blue-400 bg-blue-500/20 shadow-[0_0_60px_rgba(59,130,246,0.6)]';
+      case 'thinking':
+        return 'animate-bounce scale-100 border-yellow-400 bg-yellow-500/20 shadow-[0_0_40px_rgba(234,179,8,0.6)]';
+      case 'speaking':
+        return 'animate-[ping_2s_ease-in-out_infinite] scale-125 border-green-400 bg-green-500/30 shadow-[0_0_80px_rgba(34,197,94,0.6)]';
+      default: // idle
+        return 'scale-100 border-gray-400 bg-gray-500/10 shadow-[0_0_30px_rgba(107,114,128,0.4)]';
+    }
+  };
 
   return (
-    <div className="h-full flex flex-col bg-slate-50 relative overflow-hidden font-sans">
+    <div className="flex flex-col h-full bg-slate-950 text-white overflow-hidden relative">
+      {/* Background Ambience */}
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-slate-900 via-slate-950 to-black z-0 pointer-events-none" />
+
       {/* Header */}
-      <header className="flex-shrink-0 px-6 pt-6 pb-4 flex justify-between items-center bg-white/80 backdrop-blur-sm z-20 shadow-sm">
-        <button 
-          onClick={onBack}
-          className="w-10 h-10 rounded-full bg-white flex items-center justify-center text-slate-600 border border-slate-200 active:scale-90 transition-transform"
-        >
-          <span className="material-symbols-outlined">keyboard_arrow_down</span>
-        </button>
-        <div className="flex flex-col items-center">
-             <span className="text-sm font-bold text-slate-800 tracking-wider uppercase">随心聊</span>
-             <span className={`text-[10px] font-medium ${status === 'error' ? 'text-red-500' : 'text-green-500'} flex items-center gap-1`}>
-                <span className={`w-1.5 h-1.5 rounded-full ${status === 'error' ? 'bg-red-500' : 'bg-green-500'} ${status !== 'error' ? 'animate-pulse' : ''}`}></span>
-                {status === 'connecting' ? '连接中...' : status === 'error' ? '连接断开' : '在线'}
-             </span>
+      <div className="flex items-center justify-between p-4 px-6 border-b border-slate-800/50 bg-slate-900/30 backdrop-blur-md z-10">
+        <div className="flex items-center gap-3">
+          <div className={`w-2 h-2 rounded-full ${connectionStatus === 'connected' ? 'bg-green-500 shadow-[0_0_10px_rgba(34,197,94,0.8)]' : connectionStatus === 'error' ? 'bg-red-500 animate-pulse' : 'bg-yellow-500 animate-pulse'}`} />
+          <h2 className="text-lg font-semibold tracking-wide text-slate-200">EchoSpark</h2>
+          {connectionStatus === 'error' && (
+            <span className="text-xs text-red-400 bg-red-500/10 px-2 py-1 rounded border border-red-500/20">Connection Failed</span>
+          )}
         </div>
-        <div className="w-10"></div>
-      </header>
-
-      {/* Chat History Area */}
-      <main className="flex-1 overflow-y-auto p-4 space-y-6 relative z-10" ref={scrollRef}>
-        {messages.length === 0 && !currentOutput && (
-            <div className="h-full flex items-center justify-center text-slate-400 text-sm italic">
-                {status === 'connecting' ? '正在呼叫灵犀...' : '等待对话开始...'}
-            </div>
-        )}
-        
-        {messages.map((msg) => (
-            <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                <div className={`max-w-[80%] px-4 py-3 rounded-2xl text-sm leading-relaxed shadow-sm ${
-                    msg.role === 'user' 
-                    ? 'bg-primary text-white rounded-tr-none' 
-                    : 'bg-white text-slate-700 rounded-tl-none border border-slate-100'
-                }`}>
-                    {msg.text}
-                </div>
-            </div>
-        ))}
-
-        {/* Real-time output (AI) */}
-        {currentOutput && (
-            <div className="flex justify-start">
-                <div className="max-w-[80%] px-4 py-3 rounded-2xl text-sm leading-relaxed bg-white text-slate-700 rounded-tl-none border border-slate-100 shadow-sm flex items-center gap-2">
-                    {currentOutput}
-                    <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-pulse"></span>
-                </div>
-            </div>
-        )}
-
-        {/* Real-time input (User) */}
-        {currentInput && (
-            <div className="flex justify-end">
-                <div className="max-w-[80%] px-4 py-3 rounded-2xl text-sm leading-relaxed bg-primary/80 text-white rounded-tr-none shadow-sm flex items-center gap-2">
-                     {currentInput}
-                     <span className="w-1.5 h-1.5 bg-white/70 rounded-full animate-pulse"></span>
-                </div>
-            </div>
-        )}
-        
-        {/* Spacer for bottom area */}
-        <div className="h-2"></div>
-      </main>
-
-      {/* Bottom Visualizer & Controls */}
-      <footer className="flex-shrink-0 bg-white border-t border-slate-100 p-6 pb-12 z-20 flex flex-col items-center relative">
-        {/* Gradient Fade Top */}
-        <div className="absolute top-[-40px] left-0 right-0 h-10 bg-gradient-to-t from-white to-transparent pointer-events-none"></div>
-
-        {/* The Orb (Scaled down) */}
-        <div className="relative w-20 h-20 mb-6 flex items-center justify-center flex-shrink-0">
-            {/* Core */}
-            <div 
-                className={`w-14 h-14 rounded-full bg-gradient-to-tr from-primary to-blue-400 shadow-[0_0_30px_rgba(43,173,238,0.4)] transition-all duration-75 ease-out`}
-                style={{ transform: `scale(${1 + (volume / 255) * 0.8})` }}
-            ></div>
-            {/* Outer Rings */}
-            <div className={`absolute inset-0 rounded-full border border-primary/20 scale-110 opacity-50 ${status === 'speaking' ? 'animate-ping' : ''}`} style={{ animationDuration: '2s' }}></div>
+        <div className="flex items-center gap-4">
+          <button
+            onClick={() => setShowSubtitles(!showSubtitles)}
+            className={`p-2 rounded-full transition-colors ${showSubtitles ? 'bg-slate-800 text-blue-400' : 'hover:bg-slate-800 text-slate-400'}`}
+            title="Toggle Subtitles"
+          >
+            <Settings2 className="w-5 h-5" />
+          </button>
+          <button onClick={handleHangup} className="p-2 hover:bg-slate-800 rounded-full transition-colors text-slate-400 hover:text-white">
+            <X className="w-5 h-5" />
+          </button>
         </div>
-        
-        {/* Controls */}
-        <div className="w-full flex items-center justify-center gap-12">
-           <button 
-             onClick={() => setIsMuted(!isMuted)}
-             className={`w-14 h-14 rounded-full flex items-center justify-center transition-all ${isMuted ? 'bg-slate-100 text-slate-400' : 'bg-white border border-slate-100 text-slate-600 shadow-sm active:bg-slate-50'}`}
-           >
-             <span className="material-symbols-outlined text-2xl">{isMuted ? 'mic_off' : 'mic'}</span>
-           </button>
+      </div>
 
-           <button 
-             onClick={onBack}
-             className="w-16 h-16 rounded-full bg-red-500 text-white flex items-center justify-center shadow-red-200 shadow-xl active:scale-95 transition-transform ring-4 ring-red-50"
-           >
-             <span className="material-symbols-outlined text-3xl">call_end</span>
-           </button>
+      {/* Main Content - Orb & Visualization */}
+      <div className="flex-1 flex flex-col items-center justify-center relative z-10 w-full max-w-4xl mx-auto">
 
-            {/* Placeholder for symmetry or future feature (e.g. keyboard) */}
-           <button 
-             className="w-14 h-14 rounded-full flex items-center justify-center bg-white border border-slate-100 text-slate-300 cursor-not-allowed"
-           >
-             <span className="material-symbols-outlined text-2xl">keyboard</span>
-           </button>
+        {/* Status Text (Optional, minimalistic) */}
+        <div className="absolute top-8 text-xs font-mono text-slate-500 tracking-widest uppercase opacity-70">
+          {agentState}
         </div>
-        <div className="w-full max-w-xs mx-auto mt-6">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs text-slate-500">VAD 灵敏度</span>
-            <span className="text-xs text-slate-700">{vad}</span>
+
+        {/* The Orb */}
+        <div className="relative w-72 h-72 flex items-center justify-center">
+          {/* Outer Glow / Ripple */}
+          <div className={`absolute inset-0 rounded-full border-2 transition-all duration-700 opacity-60 ${getOrbStyle()}`} />
+
+          {/* Inner Core */}
+          <div className={`w-40 h-40 rounded-full bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 shadow-inner border border-white/10 backdrop-blur-3xl transition-all duration-500 ${agentState === 'speaking' ? 'scale-110 brightness-110' : 'scale-100 brightness-100'}`} />
+
+          {/* Center Icon/Indicator (Optional) */}
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            {isMuted && <MicOff className="w-12 h-12 text-white/50" />}
           </div>
-          <input
-            type="range"
-            min={0}
-            max={100}
-            value={vad}
-            onChange={(e) => setVad(Number(e.target.value))}
-            className="w-full"
-          />
         </div>
-      </footer>
+
+        {/* Subtitles Overlay */}
+        {showSubtitles && (
+          <div className="absolute bottom-12 w-full px-8 flex flex-col items-center gap-6 text-center">
+            {currentUserChunk && (
+              <div className="bg-slate-900/60 px-6 py-3 rounded-2xl backdrop-blur-md border border-slate-700/50 max-w-3xl animate-in fade-in slide-in-from-bottom-4 shadow-xl">
+                <div className="text-[10px] text-slate-400 mb-1 flex items-center justify-center gap-1 uppercase tracking-wider font-bold">
+                  <User className="w-3 h-3" /> You
+                </div>
+                <p className="text-xl text-slate-100 font-light leading-relaxed">{currentUserChunk}</p>
+              </div>
+            )}
+
+            {(currentAiChunk || agentState === 'speaking') && (
+              <div className="bg-indigo-950/60 px-6 py-3 rounded-2xl backdrop-blur-md border border-indigo-500/30 max-w-3xl animate-in fade-in slide-in-from-bottom-4 shadow-xl shadow-indigo-500/10">
+                <div className="text-[10px] text-indigo-300 mb-1 flex items-center justify-center gap-1 uppercase tracking-wider font-bold">
+                  <Globe className="w-3 h-3" /> EchoSpark
+                </div>
+                <p className="text-xl text-indigo-50 font-light leading-relaxed">{currentAiChunk || "..."}</p>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Footer Controls */}
+      <div className="p-8 pb-12 flex justify-center items-center gap-10 bg-gradient-to-t from-black via-slate-950 to-transparent z-20">
+        <button
+          onClick={toggleMute}
+          className={`p-5 rounded-full transition-all duration-300 transform hover:scale-105 ${isMuted ? 'bg-red-500/20 text-red-400 border border-red-500/50 shadow-[0_0_20px_rgba(239,68,68,0.2)]' : 'bg-slate-800 text-slate-200 border border-slate-700 hover:bg-slate-700 shadow-lg'}`}
+          title={isMuted ? "Unmute" : "Mute"}
+        >
+          {isMuted ? <MicOff className="w-7 h-7" /> : <Mic className="w-7 h-7" />}
+        </button>
+
+        <button
+          onClick={handleHangup}
+          className="p-6 rounded-full bg-red-600 hover:bg-red-500 text-white shadow-[0_0_30px_rgba(220,38,38,0.5)] transform hover:scale-110 transition-all duration-300 ring-4 ring-red-900/30"
+          title="End Conversation"
+        >
+          <PhoneOff className="w-9 h-9" />
+        </button>
+      </div>
     </div>
   );
 };
-
-// Utils
-function createBlob(data: Float32Array): any {
-  const l = data.length;
-  const int16 = new Int16Array(l);
-  for (let i = 0; i < l; i++) {
-    const s = Math.max(-1, Math.min(1, data[i]));
-    int16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
-  }
-  return { data: encode(new Uint8Array(int16.buffer)), mimeType: 'audio/pcm;rate=16000' };
-}
-
-function decode(base64: string) {
-  const binaryString = atob(base64);
-  const bytes = new Uint8Array(binaryString.length);
-  for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
-  return bytes;
-}
-
-function encode(bytes: Uint8Array) {
-  let binary = '';
-  for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
-  return btoa(binary);
-}
-
-async function decodeAudioData(data: Uint8Array, ctx: AudioContext, sampleRate: number, numChannels: number): Promise<AudioBuffer> {
-  const dataInt16 = new Int16Array(data.buffer);
-  const frameCount = dataInt16.length / numChannels;
-  const buffer = ctx.createBuffer(numChannels, frameCount, sampleRate);
-  for (let channel = 0; channel < numChannels; channel++) {
-    const channelData = buffer.getChannelData(channel);
-    for (let i = 0; i < frameCount; i++) channelData[i] = dataInt16[i * numChannels + channel] / 32768.0;
-  }
-  return buffer;
-}
 
 export default CasualChat;

@@ -18,7 +18,7 @@ export class RTMHelper {
     return RTMHelper._instance
   }
 
-  private constructor() {}
+  private constructor() { }
 
   public initClient({
     app_id,
@@ -34,6 +34,15 @@ export class RTMHelper {
       return this.client
     }
     this.client = new AgoraRTM.RTM(app_id, user_id)
+    this.client.addEventListener('message', (event) => {
+      console.log(`${RTMHelper.NAME} message`, event)
+    })
+    this.client.addEventListener('presence', (event) => {
+      console.log(`${RTMHelper.NAME} presence`, event)
+    })
+    this.client.addEventListener('status', (event) => {
+      console.log(`${RTMHelper.NAME} status`, event)
+    })
     return this.client
   }
 
@@ -73,19 +82,25 @@ export class RTMHelper {
 
   public async exitAndCleanup(): Promise<void> {
     if (!this.client) {
-      throw new NotFoundError('RTM client is not initialized')
+      return
     }
-    if (!this.channel) {
-      throw new NotFoundError('No channel to unsubscribe from')
-    }
-    try {
-      await this.client.unsubscribe(this.channel)
+
+    if (this.channel) {
+      try {
+        await this.client.unsubscribe(this.channel)
+      } catch (error) {
+        console.warn(`${RTMHelper.NAME} unsubscribe failed:`, error)
+      }
       this.channel = null
+    }
+
+    try {
       await this.client.logout()
       console.log(`${RTMHelper.NAME} logged out successfully`)
     } catch (error) {
-      console.error(`${RTMHelper.NAME} logout failed:`, error)
-      throw error
+      console.warn(`${RTMHelper.NAME} logout failed:`, error)
     }
+
+    this.client = null
   }
 }

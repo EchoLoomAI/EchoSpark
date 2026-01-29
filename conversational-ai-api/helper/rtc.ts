@@ -49,6 +49,7 @@ export class RTCHelper extends EventHelper<
   public localTracks: IUserTracks = {}
   public appId: string | null = null
   public token: string | null = null
+  public rtmToken: string | null = null
   public channelName: string | null = null
   public userId: string | null = null
   private processor: IAIDenoiserProcessor | null = null
@@ -58,11 +59,13 @@ export class RTCHelper extends EventHelper<
 
     this.agoraRTC = AgoraRTC
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    // ;(AgoraRTC as any).setParameter('ENABLE_AUDIO_PTS_METADATA', true)
-    ;(AgoraRTC as any).setParameter('ENABLE_AUDIO_PTS', true)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ;(AgoraRTC as any).setParameter('{"rtc.log_external_input": true}')
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      // ;(AgoraRTC as any).setParameter('ENABLE_AUDIO_PTS_METADATA', true)
+      ; (AgoraRTC as any).setParameter('ENABLE_AUDIO_PTS', true)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ; (AgoraRTC as any).setParameter('{"rtc.log_external_input": true}')
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ; (AgoraRTC as any).setLogLevel?.(4)
     // // eslint-disable-next-line @typescript-eslint/no-explicit-any
     // ;(AgoraRTC as any).setParameter('ENABLE_AUDIO_RED', true)
     // // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -94,6 +97,7 @@ export class RTCHelper extends EventHelper<
       const resData = await getAgentToken(`${userId}`, channel, options)
       this.appId = resData.data.appId
       this.token = resData.data.token
+      this.rtmToken = resData.data.rtmToken ?? null
       this.channelName = channel ?? null
     } catch (error) {
       console.error('Failed to retrieve token', error)
@@ -241,6 +245,11 @@ export class RTCHelper extends EventHelper<
     }
     const tracks = []
     if (this.localTracks.audioTrack) {
+      // Ensure track is enabled before publishing to avoid TRACK_IS_DISABLED error
+      if (!this.localTracks.audioTrack.enabled) {
+        console.warn('Audio track was disabled, enabling it before publish')
+        await this.localTracks.audioTrack.setEnabled(true)
+      }
       tracks.push(this.localTracks.audioTrack)
     }
     if (tracks.length) {
@@ -262,6 +271,10 @@ export class RTCHelper extends EventHelper<
     //console.log('Leaving channel')
     this.localTracks = {}
     this.joined = false
+    this.appId = null
+    this.token = null
+    this.rtmToken = null
+    this.channelName = null
     try {
       await this.client?.leave()
     } catch (error) {

@@ -61,7 +61,8 @@ const remoteResSchema = basicRemoteResSchema.extend({
 export const localResSchema = remoteResSchema.extend({
   data: z.object({
     token: z.string(),
-    appId: z.string()
+    appId: z.string(),
+    rtmToken: z.string().optional()
   })
 })
 

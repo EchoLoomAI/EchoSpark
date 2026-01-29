@@ -54,7 +54,10 @@ export const genRandomString = (length: number = 6) => {
 }
 
 export const genChannelName = () => {
-  const prefix = import.meta.env.VITE_CHANNEL_PREFIX || 'convoai'
+  const prefix =
+    (import.meta as any)?.env?.NEXT_PUBLIC_CHANNEL_PREFIX ||
+    (import.meta as any)?.env?.VITE_CHANNEL_PREFIX ||
+    'convoai'
   const randomString = genUUID()
   return `${prefix}-${randomString}`
 }
