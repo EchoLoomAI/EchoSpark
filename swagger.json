@@ -1,0 +1,154 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "EchoSpark Client API",
+    "description": "API endpoints consumed by the EchoSpark frontend application. These requests are proxied to the EchoHub BFF Service.",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "/api",
+      "description": "Local Frontend Proxy"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    },
+    "schemas": {
+      "SendCodeRequest": {
+        "type": "object",
+        "required": ["phone"],
+        "properties": {
+          "phone": { "type": "string" },
+          "scene": { "type": "string", "enum": ["login", "register"], "default": "login" }
+        }
+      },
+      "LoginRequest": {
+        "type": "object",
+        "required": ["phone", "code"],
+        "properties": {
+          "phone": { "type": "string" },
+          "code": { "type": "string" }
+        }
+      },
+      "User": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "phone": { "type": "string" },
+          "name": { "type": "string" },
+          "avatar": { "type": "string" }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "code": { "type": "string" },
+          "message": { "type": "string" }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/auth/send-code": {
+      "post": {
+        "summary": "Send Verification Code",
+        "requestBody": {
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SendCodeRequest" } } }
+        },
+        "responses": {
+          "200": { "description": "Code sent" }
+        }
+      }
+    },
+    "/auth/login": {
+      "post": {
+        "summary": "Login with Phone/Code",
+        "requestBody": {
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LoginRequest" } } }
+        },
+        "responses": {
+          "200": {
+            "description": "Login successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "code": { "type": "string" },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "tokens": {
+                          "type": "object",
+                          "properties": {
+                            "accessToken": { "type": "string" },
+                            "refreshToken": { "type": "string" }
+                          }
+                        },
+                        "user": { "$ref": "#/components/schemas/User" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/users/me": {
+      "get": {
+        "summary": "Get Current User Profile",
+        "security": [{ "BearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "User profile",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/User" } } }
+          }
+        }
+      }
+    },
+    "/agent": {
+      "post": {
+        "summary": "Start Agent Session",
+        "security": [{ "BearerAuth": [] }],
+        "responses": {
+          "200": { "description": "Agent started" }
+        }
+      }
+    },
+    "/agent/stop": {
+      "post": {
+        "summary": "Stop Agent Session",
+        "security": [{ "BearerAuth": [] }],
+        "responses": {
+          "200": { "description": "Agent stopped" }
+        }
+      }
+    },
+    "/upload/log": {
+      "post": {
+        "summary": "Upload Client Logs",
+        "security": [{ "BearerAuth": [] }],
+        "responses": {
+          "200": { "description": "Log uploaded" }
+        }
+      }
+    },
+    "/sip/call": {
+      "post": {
+        "summary": "Initiate SIP Call",
+        "security": [{ "BearerAuth": [] }],
+        "responses": {
+          "200": { "description": "Call initiated" }
+        }
+      }
+    }
+  }
+}

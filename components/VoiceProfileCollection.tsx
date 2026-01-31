@@ -1,22 +1,17 @@
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { UserProfile } from '../types';
-import {
-  EMessageType,
-  ETurnStatus
-} from '../conversational-ai-api';
-import { useVoiceAgent } from '../hooks/useVoiceAgent';
 import {
   User,
   Globe,
   Mic,
   MicOff,
   X,
-  ChevronUp,
-  MessageSquare,
-  FileText
+  ChevronUp
 } from 'lucide-react';
 import { VoiceVisualizer } from './VoiceVisualizer';
+import { useAgoraVoiceAgent, AgentState } from '../hooks/useAgoraVoiceAgent';
+import { genUserId } from '@/lib/utils';
 
 interface Props {
   onComplete: (profile: Partial<UserProfile>) => void;
@@ -29,101 +24,47 @@ interface ChatMessage {
 }
 
 const VoiceProfileCollection: React.FC<Props> = ({ onComplete }) => {
+  // State
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [currentAiChunk, setCurrentAiChunk] = useState("");
-  const [currentUserChunk, setCurrentUserChunk] = useState("");
   const [showTranscript, setShowTranscript] = useState(false);
-  const [showSubtitles, setShowSubtitles] = useState(true);
-  const [connectionError, setConnectionError] = useState<string | null>(null);
-  const apiBaseUrl =
-    (import.meta as any)?.env?.VITE_API_BASE_URL ||
-    (import.meta as any)?.env?.NEXT_PUBLIC_DEMO_SERVER_URL ||
-    'http://localhost:3001/v1';
-  const appId =
-    (import.meta as any)?.env?.VITE_AGORA_APP_ID ||
-    (import.meta as any)?.env?.AGORA_APP_ID ||
-    '';
 
   const [collectedData, setCollectedData] = useState<Partial<UserProfile>>({});
   const [mode, setMode] = useState<'voice' | 'manual'>('voice');
   const [stepIndex, setStepIndex] = useState(0);
   const [formData, setFormData] = useState<Partial<UserProfile>>({});
 
-  // Generate a stable User ID for this session to prevent connection issues
-  const userIdRef = useRef(String(Math.floor(Math.random() * 1000000)));
+  // Voice Agent State
+  const [agentState, setAgentState] = useState<AgentState>('idle');
+  const [isMuted, setIsMuted] = useState(false);
+  const [timeMode, setTimeMode] = useState<'specific' | 'approx'>('specific');
 
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  // Use the Agora Voice Agent Hook
   const {
-    startSession,
-    stopSession,
-    interrupt,
-    sendText,
-    toggleMute,
     connectionStatus,
-    agentState,
-    isMuted
-  } = useVoiceAgent({
-    onMessage: (items) => {
-      const userItems = items.filter((item: any) => {
-        const metadata = item.metadata as
-          | { object?: EMessageType }
-          | null
-          | undefined;
-        return metadata?.object === EMessageType.USER_TRANSCRIPTION;
-      });
-      const agentItems = items.filter((item: any) => {
-        const metadata = item.metadata as
-          | { object?: EMessageType }
-          | null
-          | undefined;
-        if (metadata && typeof metadata.object !== 'undefined') {
-          return metadata.object === EMessageType.AGENT_TRANSCRIPTION;
-        }
-        return true;
-      });
-
-      const latestUser = userItems[userItems.length - 1];
-      const latestAgent = agentItems[agentItems.length - 1];
-
-      if (latestUser) {
-        const isFinalUser = latestUser.status !== ETurnStatus.IN_PROGRESS;
-        if (isFinalUser) {
-          setCurrentUserChunk('');
-          setMessages((prev) => {
-            const id = `user-${latestUser.turn_id}`;
-            if (prev.some((m) => m.id === id)) return prev;
-            return [
-              ...prev,
-              {
-                id,
-                role: 'user',
-                text: latestUser.text
-              }
-            ];
-          });
-        } else {
-          setCurrentUserChunk(latestUser.text);
-          // Auto-interrupt agent when user starts speaking
-          if (agentState === 'speaking') {
-            interrupt();
-          }
-        }
-      }
-
-      if (latestAgent) {
-        let displayText = latestAgent.text;
+    volumeLevel,
+    localVolumeLevel,
+    getFrequencyBands,
+    startSession: startAgoraSession,
+    stopSession: stopAgoraSession,
+    interrupt: agoraInterrupt,
+    sendText: agoraSendText,
+    setMute
+  } = useAgoraVoiceAgent({
+    onTranscript: (text, role, isFinal) => {
+      // Parse PROFILE_UPDATE from assistant messages
+      if (role === 'assistant') {
         const globalRegex = /\$\$PROFILE_UPDATE\$\$ (\{.*?\}) \$\$/g;
         let match;
+        let cleanText = text;
 
-        while ((match = globalRegex.exec(latestAgent.text)) !== null) {
+        while ((match = globalRegex.exec(text)) !== null) {
           try {
             const data = JSON.parse(match[1]);
             if (data.key && data.value !== undefined) {
               setCollectedData((prev) => {
-                if (prev[data.key as keyof UserProfile] === data.value) {
-                  return prev;
-                }
+                if (prev[data.key as keyof UserProfile] === data.value) return prev;
                 return { ...prev, [data.key]: data.value };
               });
             }
@@ -131,89 +72,99 @@ const VoiceProfileCollection: React.FC<Props> = ({ onComplete }) => {
             console.error('JSON parse error', e);
           }
         }
-        displayText = displayText.replace(globalRegex, '').trim();
+        cleanText = cleanText.replace(globalRegex, '').trim();
 
-        const isFinalAgent =
-          latestAgent.status !== ETurnStatus.IN_PROGRESS;
-        if (isFinalAgent) {
-          setCurrentAiChunk('');
-          setMessages((prev) => {
-            const id = `agent-${latestAgent.turn_id}`;
-            if (prev.some((m) => m.id === id)) return prev;
-            return [
-              ...prev,
-              {
-                id,
-                role: 'ai',
-                text: displayText
-              }
-            ];
-          });
-        } else {
-          setCurrentAiChunk(displayText);
+        if (cleanText) {
+          setMessages(prev => [...prev, { id: Date.now().toString(), role: 'ai', text: cleanText }]);
+        }
+      } else {
+        if (isFinal) {
+          setMessages(prev => [...prev, { id: Date.now().toString(), role: 'user', text }]);
         }
       }
-    }
-    , onError: (err) => {
-      const msg = (err && (err.message || (typeof err === 'string' ? err : ''))) || '连接失败，请检查网络或后端服务';
-      setConnectionError(msg);
+    },
+    onAgentStateChange: (state) => {
+      setAgentState(state);
     }
   });
 
-  // Auto-scroll to bottom
+  const startSession = async () => {
+    // Generate a random numeric UID for Agora (must be number for Type 1 tokens if backend requires it)
+    // or string if string UID is enabled. AgentService tries to use number if possible.
+    // Use genUserId() to ensure 100000-999999 range, consistent with VoiceAgent
+    const uidStr = localStorage.getItem('uid');
+    const uid = uidStr ? Number(uidStr) : genUserId();
+    const channelName = `voice-profile-${uid}`;
+
+    const systemInstruction = `
+      你是回声灵犀的AI引导助手。
+      【重要任务】：
+      1. **必须主动开口**：对话开始后，请立即热情地打招呼，不要等待用户先说话。
+      2. **开场白**：“您好呀！我是灵犀。很高兴能为您记录故事。咱们先认识一下，请问您怎么称呼？”
+      3. **适老化对话**：语速要慢，语气要亲切、耐心，像和长辈聊天一样。
+      4. **信息采集**：通过自然对话收集用户的：昵称、年龄、性别、出生地、职业、常用方言。
+      5. **单次单问**：一次只问一个问题，不要让用户感到压力。
+      6. **数据记录**：每当你获得用户的某个信息时，请务必在回复中包含以下格式的JSON数据（不要使用markdown代码块，直接输出）：
+         $$PROFILE_UPDATE$$ {"key": "nickname", "value": "..."} $$
+         支持的key包括：nickname, age (数字), gender (男/女), birthplace, occupation, dialect。
+         例如：
+         - 用户说“叫我张大爷”，回复：“好的张大爷... $$PROFILE_UPDATE$$ {"key": "nickname", "value": "张大爷"} $$”
+         - 用户说“今年75了”，回复：“75岁身子骨还很硬朗呢... $$PROFILE_UPDATE$$ {"key": "age", "value": 75} $$”
+    `;
+
+    await startAgoraSession(uid, channelName, systemInstruction);
+  };
+
+  const stopSession = () => {
+    stopAgoraSession();
+  };
+
+  const interrupt = async () => {
+    await agoraInterrupt();
+  };
+
+  const sendText = async (text: string) => {
+    await agoraSendText(text);
+  };
+
+  const toggleMute = () => {
+    const newMutedState = !isMuted;
+    setIsMuted(newMutedState);
+    setMute(newMutedState);
+  };
+
+  // Lifecycle
+  useEffect(() => {
+    if (mode === 'voice') {
+      startSession();
+    } else {
+      stopSession();
+    }
+    return () => {
+      stopSession();
+    };
+  }, [mode]);
+
+  // Auto-scroll
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [messages, currentAiChunk, currentUserChunk]);
+  }, [messages]);
 
-  const handleStartSession = async () => {
-    try {
-      const systemInstruction = `
-        你是回声灵犀的AI引导助手。
-        【重要任务】：
-        1. **必须主动开口**：对话开始后，请立即热情地打招呼，不要等待用户先说话。
-        2. **开场白**：“您好呀！我是灵犀。很高兴能为您记录故事。咱们先认识一下，请问您怎么称呼？”
-        3. **适老化对话**：语速要慢，语气要亲切、耐心，像和长辈聊天一样。
-        4. **信息采集**：通过自然对话收集用户的：昵称、年龄、性别、出生地、职业、常用方言。
-        5. **单次单问**：一次只问一个问题，不要让用户感到压力。
-        6. **数据记录**：每当你获得用户的某个信息时，请务必在回复中包含以下格式的JSON数据（不要使用markdown代码块，直接输出）：
-           $$PROFILE_UPDATE$$ {"key": "nickname", "value": "..."} $$
-           支持的key包括：nickname, age (数字), gender (男/女), birthplace, occupation, dialect。
-           例如：
-           - 用户说“叫我张大爷”，回复：“好的张大爷... $$PROFILE_UPDATE$$ {"key": "nickname", "value": "张大爷"} $$”
-           - 用户说“今年75了”，回复：“75岁身子骨还很硬朗呢... $$PROFILE_UPDATE$$ {"key": "age", "value": 75} $$”
-      `;
-      // Pass the stable userIdRef.current to prevent "Invalid token" errors due to UID mismatch
-      await startSession(systemInstruction, userIdRef.current);
-    } catch (error) {
-      console.error('Failed to start session in VoiceProfileCollection:', error);
-    }
-  };
+  // Sync collected data
+  useEffect(() => {
+    setFormData(prev => ({ ...prev, ...collectedData }));
+  }, [collectedData]);
 
-
-  const handleChipClick = async (val: string) => {
-    if (mode === 'manual') {
-      const field = ['nickname', 'age', 'gender', 'birthplace', 'occupation', 'dialect'][stepIndex] as keyof UserProfile;
-      setFormData(prev => ({ ...prev, [field]: val }));
-    } else {
-      await interrupt();
-      await sendText(val);
-    }
-  };
-
-  const handleInterrupt = async () => {
-    await interrupt();
-  };
-
-  // Handle manual input logic (kept same as before)
+  // Manual Mode Logic
   const manualSteps = [
-    { key: 'nickname' as const, title: '怎么称呼您？', description: '可以选择称谓，也可以填写昵称。' },
-    { key: 'age' as const, title: '您的年龄大约？', description: '选择一个年龄段，更轻松。' },
-    { key: 'gender' as const, title: '我们该怎么称呼您？', description: '选择先生或女士。' },
-    { key: 'birthplace' as const, title: '您是哪里人？', description: '请选择或填写家乡。' },
-    { key: 'dialect' as const, title: '您平时常说哪种方言？', description: '可以多选中最常用的。' },
-    { key: 'occupation' as const, title: '现在主要在做什么工作或已经退休？', description: '选择最接近的一项。' },
+    { key: 'nickname' as const, title: '怎么称呼您？', description: '请填写您的具体称呼，例如“谢爷爷”或“李奶奶”。' },
+    { key: 'age' as const, title: '您的年龄是？', description: '请输入您的周岁年龄，我们将自动推算出生年份。' },
+    { key: 'birthTime' as const, title: '您的出生时间？', description: '请完善您的出生日期和时间。' },
+    { key: 'birthplace' as const, title: '您是哪里人？', description: '请填写您的具体家乡或出生地。' },
+    { key: 'occupation' as const, title: '您退休前的职业是？', description: '填写您退休前的主要工作。' },
+    { key: 'dialect' as const, title: '您的常用语言？', description: '选择您平时最常使用的语言或方言。' },
   ];
 
   const goNextStep = () => {
@@ -229,21 +180,6 @@ const VoiceProfileCollection: React.FC<Props> = ({ onComplete }) => {
       setStepIndex(stepIndex - 1);
     }
   };
-
-  useEffect(() => {
-    if (mode === 'voice') {
-      handleStartSession();
-    } else {
-      stopSession();
-    }
-    return () => {
-      stopSession();
-    };
-  }, [mode]);
-
-  useEffect(() => {
-    setFormData(prev => ({ ...prev, ...collectedData }));
-  }, [collectedData]);
 
   const getStatusText = () => {
     if (connectionStatus === 'connecting') return '加载中...';
@@ -261,10 +197,10 @@ const VoiceProfileCollection: React.FC<Props> = ({ onComplete }) => {
   const fields = [
     { key: 'nickname', label: '昵称' },
     { key: 'age', label: '年龄' },
-    { key: 'gender', label: '性别' },
     { key: 'birthplace', label: '出生地' },
+    { key: 'birthTime', label: '出生时间' },
     { key: 'occupation', label: '职业' },
-    { key: 'dialect', label: '方言' }
+    { key: 'dialect', label: '语言' }
   ];
 
   return (
@@ -348,7 +284,7 @@ const VoiceProfileCollection: React.FC<Props> = ({ onComplete }) => {
               <span>{getStatusText()}</span>
             </div>
 
-            {/* The Orb - ChatGPT Style */}
+            {/* The Orb - ChatGPT Style with Visualizer */}
             <div className="flex-1 flex items-center justify-center w-full transition-opacity duration-500">
               <div className="relative w-72 h-72 flex items-center justify-center mb-12">
                 <div className={`relative w-full h-full transition-all duration-500 ${agentState === 'speaking' ? 'scale-110' :
@@ -369,6 +305,17 @@ const VoiceProfileCollection: React.FC<Props> = ({ onComplete }) => {
                           'scale-95 opacity-80'
                       }`}></div>
 
+                    {/* Visualizer Overlay */}
+                    <div className="absolute inset-0 flex items-center justify-center z-10">
+                      <VoiceVisualizer
+                        state={agentState}
+                        barCount={6}
+                        barColor="#3b82f6"
+                        volume={(agentState === 'speaking' ? volumeLevel : localVolumeLevel) / 100}
+                        getFrequencyBands={getFrequencyBands}
+                      />
+                    </div>
+
                     {/* Inner Rings/Detail */}
                     <div className="absolute inset-0 w-full h-full animate-morph border-2 border-white/50 opacity-50 scale-90 pointer-events-none"></div>
                     <div className="absolute inset-0 w-full h-full animate-morph border border-white/30 opacity-30 scale-110 animation-delay-2000 pointer-events-none"></div>
@@ -381,14 +328,9 @@ const VoiceProfileCollection: React.FC<Props> = ({ onComplete }) => {
             <div className="text-center space-y-2 z-10 mb-24 absolute top-24 left-0 right-0 pointer-events-none">
               {connectionStatus === 'error' && (
                 <div className="space-y-3 bg-black/50 p-4 rounded-xl backdrop-blur-md pointer-events-auto inline-block">
-                  {connectionError && (
-                    <div className="text-sm text-red-300">
-                      {connectionError}
-                    </div>
-                  )}
                   <div className="flex items-center justify-center gap-3">
                     <button
-                      onClick={() => handleStartSession()}
+                      onClick={() => startSession()}
                       className="px-3 py-1.5 rounded-lg bg-red-500/20 text-red-200 border border-red-500/30 text-sm hover:bg-red-500/30 active:scale-95 transition-all"
                     >
                       重试连接
@@ -429,29 +371,6 @@ const VoiceProfileCollection: React.FC<Props> = ({ onComplete }) => {
                         </div>
                       </div>
                     ))}
-                    {/* Current Chunks */}
-                    {(currentUserChunk) && (
-                      <div className="w-full flex flex-col gap-2 items-end">
-                        <div className="flex items-center gap-2">
-                          <span className="text-slate-400 text-sm">你</span>
-                          <User className="w-5 h-5 text-blue-400" />
-                        </div>
-                        <div className="rounded-md py-2 px-4 max-w-[80%] bg-slate-800 text-white opacity-70">
-                          {currentUserChunk}
-                        </div>
-                      </div>
-                    )}
-                    {(currentAiChunk) && (
-                      <div className="w-full flex flex-col gap-2 items-start">
-                        <div className="flex items-center gap-2">
-                          <Globe className="w-5 h-5 text-purple-400" />
-                          <span className="text-slate-400 text-sm">Agent</span>
-                        </div>
-                        <div className="rounded-md py-2 px-4 max-w-[80%] bg-slate-900 text-slate-200 opacity-70">
-                          {currentAiChunk}
-                        </div>
-                      </div>
-                    )}
                   </div>
                 </div>
               </div>
@@ -488,22 +407,12 @@ const VoiceProfileCollection: React.FC<Props> = ({ onComplete }) => {
                   </button>
 
                   {/* Visualizer or Interrupt */}
-                  {agentState === 'speaking' ? (
-                    <button
-                      onClick={handleInterrupt}
-                      className="flex items-center justify-center w-12 h-12 rounded-full text-white hover:bg-white/10 transition-colors"
-                      title="打断"
-                    >
-                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" style={{ width: '1.5rem', height: '1.5rem', color: 'currentColor' }}>
-                        <rect x="0.666504" y="0.666748" width="26.6667" height="26.6667" rx="6.66667" fill="currentColor"></rect>
-                      </svg>
-                    </button>
-                  ) : (
-                    <VoiceVisualizer
-                      state={agentState}
-                      barColor={isMuted ? '#ef4444' : '#3b82f6'}
-                    />
-                  )}
+                  <VoiceVisualizer
+                    state={agentState}
+                    barColor={isMuted ? '#ef4444' : '#3b82f6'}
+                    onInterrupt={interrupt}
+                    getFrequencyBands={getFrequencyBands}
+                  />
 
                   {/* Device Switch Chevron */}
                   <button className="flex items-center justify-center w-10 h-10 rounded-full text-slate-400 hover:text-white transition-colors">
@@ -522,7 +431,7 @@ const VoiceProfileCollection: React.FC<Props> = ({ onComplete }) => {
             </div>
           </div>
         ) : (
-          <div className="h-full p-6 space-y-6 overflow-y-auto">
+          <div className="h-full p-6 pb-48 space-y-6 overflow-y-auto">
             <div>
               <div className="text-sm text-slate-300 mb-2">第 {stepIndex + 1} / {manualSteps.length} 步</div>
               <div className="text-3xl font-black text-white mb-2">{manualSteps[stepIndex].title}</div>
@@ -531,81 +440,148 @@ const VoiceProfileCollection: React.FC<Props> = ({ onComplete }) => {
             <div className="space-y-5">
               {manualSteps[stepIndex].key === 'nickname' && (
                 <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-3">
-                    {['爷爷', '奶奶', '外公', '外婆'].map((label) => (
-                      <button
-                        key={label}
-                        className={`h-14 rounded-2xl text-xl font-bold ${formData.nickname === label ? 'bg-primary text-white' : 'bg-white/10 text-slate-200'}`}
-                        onClick={() => setFormData(prev => ({ ...prev, nickname: label }))}
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
                   <div>
-                    <div className="text-base text-slate-300 mb-2">也可以由家人帮忙填写称呼或昵称</div>
+                    <div className="text-base text-slate-300 mb-2">请填写您的具体称呼</div>
                     <input
                       type="text"
                       value={formData.nickname ?? ''}
                       onChange={(e) => setFormData(prev => ({ ...prev, nickname: e.target.value }))}
-                      className="w-full h-14 rounded-2xl px-4 text-2xl font-bold text-slate-900 bg-white"
+                      placeholder="例如：谢爷爷、张奶奶"
+                      className="w-full h-14 rounded-2xl px-4 text-2xl font-bold text-slate-900 bg-white placeholder:text-slate-400"
                     />
                   </div>
                 </div>
               )}
               {manualSteps[stepIndex].key === 'age' && (
                 <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-3">
-                    {['50后', '60后', '70后', '80后', '90后'].map((label, idx) => (
-                      <button
-                        key={label}
-                        className={`h-14 rounded-2xl text-xl font-bold ${formData.age === (50 + idx * 10) ? 'bg-primary text-white' : 'bg-white/10 text-slate-200'}`}
-                        onClick={() => setFormData(prev => ({ ...prev, age: 50 + idx * 10 }))}
-                      >
-                        {label}
-                      </button>
-                    ))}
+                  <div>
+                    <div className="text-base text-slate-300 mb-2">请输入您的周岁年龄</div>
+                    <input
+                      type="number"
+                      value={formData.age ?? ''}
+                      onChange={(e) => setFormData(prev => ({ ...prev, age: parseInt(e.target.value) || undefined }))}
+                      placeholder="例如：75"
+                      className="w-full h-14 rounded-2xl px-4 text-2xl font-bold text-slate-900 bg-white placeholder:text-slate-400"
+                      autoFocus
+                    />
                   </div>
                 </div>
               )}
-              {manualSteps[stepIndex].key === 'gender' && (
-                <div className="space-y-4">
-                  <div className="flex gap-3">
-                    <button
-                      className={`flex-1 h-16 rounded-2xl text-2xl font-bold ${formData.gender === '男' ? 'bg-primary text-white' : 'bg-white/10 text-slate-200'}`}
-                      onClick={() => setFormData(prev => ({ ...prev, gender: '男' }))}
-                    >
-                      先生
-                    </button>
-                    <button
-                      className={`flex-1 h-16 rounded-2xl text-2xl font-bold ${formData.gender === '女' ? 'bg-primary text-white' : 'bg-white/10 text-slate-200'}`}
-                      onClick={() => setFormData(prev => ({ ...prev, gender: '女' }))}
-                    >
-                      女士
-                    </button>
+              {manualSteps[stepIndex].key === 'birthTime' && (
+                <div className="space-y-6">
+                  {/* Year Display */}
+                  <div className="bg-white/5 rounded-xl p-4 border border-white/10">
+                    <div className="text-sm text-slate-400 mb-1">出生年份 (由年龄推算)</div>
+                    <div className="text-2xl font-bold text-white">
+                      {formData.age ? new Date().getFullYear() - formData.age : '未填写年龄'} 年
+                    </div>
+                  </div>
+
+                  {/* Date Input */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <div className="text-base text-slate-300 mb-2">月份</div>
+                      <select
+                        className="w-full h-14 rounded-2xl px-4 text-xl font-bold text-slate-900 bg-white appearance-none"
+                        value={formData.birthTime ? (formData.birthTime.split(/[-T\s]/)[1] || '') : ''}
+                        onChange={(e) => {
+                          const month = e.target.value.padStart(2, '0');
+                          const year = formData.age ? new Date().getFullYear() - formData.age : new Date().getFullYear();
+                          const currentDay = formData.birthTime ? (formData.birthTime.split(/[-T\s]/)[2] || '01') : '01';
+                          const currentTime = formData.birthTime ? (formData.birthTime.includes('T') ? formData.birthTime.split('T')[1] : (formData.birthTime.includes(' ') ? formData.birthTime.split(' ')[1] : '00:00')) : '00:00';
+                          const separator = timeMode === 'specific' ? 'T' : ' ';
+                          setFormData(prev => ({ ...prev, birthTime: `${year}-${month}-${currentDay}${separator}${currentTime}` }));
+                        }}
+                      >
+                        <option value="">选择</option>
+                        {Array.from({ length: 12 }, (_, i) => i + 1).map(m => (
+                          <option key={m} value={m.toString().padStart(2, '0')}>{m}月</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <div className="text-base text-slate-300 mb-2">日期</div>
+                      <select
+                        className="w-full h-14 rounded-2xl px-4 text-xl font-bold text-slate-900 bg-white appearance-none"
+                        value={formData.birthTime ? (formData.birthTime.split(/[-T\s]/)[2] || '') : ''}
+                        onChange={(e) => {
+                          const day = e.target.value.padStart(2, '0');
+                          const year = formData.age ? new Date().getFullYear() - formData.age : new Date().getFullYear();
+                          const currentMonth = formData.birthTime ? (formData.birthTime.split(/[-T\s]/)[1] || '01') : '01';
+                          const currentTime = formData.birthTime ? (formData.birthTime.includes('T') ? formData.birthTime.split('T')[1] : (formData.birthTime.includes(' ') ? formData.birthTime.split(' ')[1] : '00:00')) : '00:00';
+                          const separator = timeMode === 'specific' ? 'T' : ' ';
+                          setFormData(prev => ({ ...prev, birthTime: `${year}-${currentMonth}-${day}${separator}${currentTime}` }));
+                        }}
+                      >
+                        <option value="">选择</option>
+                        {Array.from({ length: 31 }, (_, i) => i + 1).map(d => (
+                          <option key={d} value={d.toString().padStart(2, '0')}>{d}日</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Time Input */}
+                  <div>
+                    <div className="flex gap-4 mb-4 bg-white/5 p-1 rounded-xl">
+                      <button
+                        onClick={() => setTimeMode('specific')}
+                        className={`flex-1 py-2 rounded-lg font-bold transition-all ${timeMode === 'specific' ? 'bg-primary text-white shadow' : 'text-slate-400 hover:text-white'}`}
+                      >
+                        具体时间
+                      </button>
+                      <button
+                        onClick={() => setTimeMode('approx')}
+                        className={`flex-1 py-2 rounded-lg font-bold transition-all ${timeMode === 'approx' ? 'bg-primary text-white shadow' : 'text-slate-400 hover:text-white'}`}
+                      >
+                        大概时间
+                      </button>
+                    </div>
+
+                    {timeMode === 'specific' ? (
+                      <input
+                        type="time"
+                        value={formData.birthTime && formData.birthTime.includes('T') ? formData.birthTime.split('T')[1] : ''}
+                        onChange={(e) => {
+                          const time = e.target.value;
+                          const year = formData.age ? new Date().getFullYear() - formData.age : new Date().getFullYear();
+                          const currentMonth = formData.birthTime ? (formData.birthTime.split(/[-T\s]/)[1] || '01') : '01';
+                          const currentDay = formData.birthTime ? (formData.birthTime.split(/[-T\s]/)[2] || '01') : '01';
+                          setFormData(prev => ({ ...prev, birthTime: `${year}-${currentMonth}-${currentDay}T${time}` }));
+                        }}
+                        className="w-full h-16 rounded-2xl px-4 text-xl font-bold text-slate-900 bg-white"
+                      />
+                    ) : (
+                      <div className="grid grid-cols-3 gap-3">
+                        {['凌晨', '早上', '中午', '下午', '晚上', '深夜'].map(t => (
+                          <button
+                            key={t}
+                            className={`h-14 rounded-2xl text-lg font-bold transition-all ${formData.birthTime && formData.birthTime.includes(' ') && formData.birthTime.split(' ')[1] === t ? 'bg-primary text-white' : 'bg-white/10 text-slate-200'}`}
+                            onClick={() => {
+                              const year = formData.age ? new Date().getFullYear() - formData.age : new Date().getFullYear();
+                              const currentMonth = formData.birthTime ? (formData.birthTime.split(/[-T\s]/)[1] || '01') : '01';
+                              const currentDay = formData.birthTime ? (formData.birthTime.split(/[-T\s]/)[2] || '01') : '01';
+                              setFormData(prev => ({ ...prev, birthTime: `${year}-${currentMonth}-${currentDay} ${t}` }));
+                            }}
+                          >
+                            {t}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
               {manualSteps[stepIndex].key === 'birthplace' && (
                 <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-3">
-                    {['本地人', '外地人', '老家在北方', '老家在南方'].map((label) => (
-                      <button
-                        key={label}
-                        className={`h-14 rounded-2xl text-xl font-bold ${formData.birthplace === label ? 'bg-primary text-white' : 'bg-white/10 text-slate-200'}`}
-                        onClick={() => setFormData(prev => ({ ...prev, birthplace: label }))}
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
                   <div>
-                    <div className="text-base text-slate-300 mb-2">也可以填写更具体的城市或地区</div>
+                    <div className="text-base text-slate-300 mb-2">请填写具体的城市或地区</div>
                     <input
                       type="text"
                       value={formData.birthplace ?? ''}
                       onChange={(e) => setFormData(prev => ({ ...prev, birthplace: e.target.value }))}
-                      className="w-full h-14 rounded-2xl px-4 text-2xl font-bold text-slate-900 bg-white"
+                      placeholder="例如：北京市海淀区"
+                      className="w-full h-14 rounded-2xl px-4 text-2xl font-bold text-slate-900 bg-white placeholder:text-slate-400"
                     />
                   </div>
                 </div>
@@ -628,7 +604,7 @@ const VoiceProfileCollection: React.FC<Props> = ({ onComplete }) => {
               {manualSteps[stepIndex].key === 'occupation' && (
                 <div className="space-y-4">
                   <div className="grid grid-cols-2 gap-3">
-                    {['已退休', '教师', '医生', '工人', '个体经营', '其他'].map((label) => (
+                    {['公务员', '教师', '医生', '工人', '个体经营'].map((label) => (
                       <button
                         key={label}
                         className={`h-14 rounded-2xl text-xl font-bold ${formData.occupation === label ? 'bg-primary text-white' : 'bg-white/10 text-slate-200'}`}
@@ -637,7 +613,26 @@ const VoiceProfileCollection: React.FC<Props> = ({ onComplete }) => {
                         {label}
                       </button>
                     ))}
+                    <button
+                      className={`h-14 rounded-2xl text-xl font-bold ${formData.occupation !== undefined && !['公务员', '教师', '医生', '工人', '个体经营'].includes(formData.occupation) ? 'bg-primary text-white' : 'bg-white/10 text-slate-200'}`}
+                      onClick={() => setFormData(prev => ({ ...prev, occupation: '' }))}
+                    >
+                      其他
+                    </button>
                   </div>
+                  {formData.occupation !== undefined && !['公务员', '教师', '医生', '工人', '个体经营'].includes(formData.occupation) && (
+                    <div className="animate-in fade-in slide-in-from-top-2 duration-200">
+                      <div className="text-base text-slate-300 mb-2">请输入您的具体职业</div>
+                      <input
+                        type="text"
+                        value={formData.occupation ?? ''}
+                        onChange={(e) => setFormData(prev => ({ ...prev, occupation: e.target.value }))}
+                        placeholder="例如：工程师"
+                        className="w-full h-14 rounded-2xl px-4 text-2xl font-bold text-slate-900 bg-white placeholder:text-slate-400"
+                        autoFocus
+                      />
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -686,40 +681,5 @@ const VoiceProfileCollection: React.FC<Props> = ({ onComplete }) => {
     </div>
   );
 };
-
-// 辅助音频函数
-function createBlob(data: Float32Array): any {
-  const l = data.length;
-  const int16 = new Int16Array(l);
-  for (let i = 0; i < l; i++) {
-    const s = Math.max(-1, Math.min(1, data[i]));
-    int16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
-  }
-  return { data: encode(new Uint8Array(int16.buffer)), mimeType: 'audio/pcm;rate=16000' };
-}
-
-function decode(base64: string) {
-  const binaryString = atob(base64);
-  const bytes = new Uint8Array(binaryString.length);
-  for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
-  return bytes;
-}
-
-function encode(bytes: Uint8Array) {
-  let binary = '';
-  for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
-  return btoa(binary);
-}
-
-async function decodeAudioData(data: Uint8Array, ctx: AudioContext, sampleRate: number, numChannels: number): Promise<AudioBuffer> {
-  const dataInt16 = new Int16Array(data.buffer);
-  const frameCount = dataInt16.length / numChannels;
-  const buffer = ctx.createBuffer(numChannels, frameCount, sampleRate);
-  for (let channel = 0; channel < numChannels; channel++) {
-    const channelData = buffer.getChannelData(channel);
-    for (let i = 0; i < frameCount; i++) channelData[i] = dataInt16[i * numChannels + channel] / 32768.0;
-  }
-  return buffer;
-}
 
 export default VoiceProfileCollection;

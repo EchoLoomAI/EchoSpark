@@ -91,55 +91,192 @@ export const getAgentToken = async (
   const query = generateDevModeQuery({ devMode })
   const baseURL = (import.meta as any)?.env?.VITE_API_BASE_URL || ''
   const isRemoteToolbox = baseURL.includes('service.apprtc.cn')
-  const payload = {
-    request_id: genUUID(),
-    uid: userId,
-    channel_name: channel ?? ''
-  }
 
-  if (isRemoteToolbox) {
+  // Check if we have an auth token.
+  // NOTE: For EchoSpark integration with VoiceAgent (Port 3001), we MUST use the VoiceAgent BFF endpoint (/api/token).
+  // The authenticated EchoHub endpoint (/api/sessions) is NOT available via the VoiceAgent proxy.
+  // Therefore, we force the "Guest/Remote" logic path which uses /api/token.
+  const authToken = localStorage.getItem('token');
+  const isGuest = !authToken;
+  const forceVoiceAgentBFF = true;
+
+  if (isRemoteToolbox || isGuest || forceVoiceAgentBFF) {
     const appId =
       (import.meta as any)?.env?.VITE_AGORA_APP_ID ||
-      (import.meta as any)?.env?.AGORA_APP_ID
+      (import.meta as any)?.env?.AGORA_APP_ID ||
+      'bfe2d1894795467e8fbc81cdd61fe329'
     if (!appId) {
       throw new Error('AGORA AppId 未配置')
     }
-    const remoteUrl = `${REMOTE_TOKEN_GENERATE}${query}`
-    // If type is 1 (RTC Int Token), we should try to pass uid as number
-    // We are reverting to Type 1 because some Agent backends do not support String UIDs correctly
-    const numericUid = Number(userId);
-    const requestUid = !isNaN(numericUid) ? numericUid : `${userId}`;
 
+    // If local guest or forced BFF, we need to route through /api proxy (or /v2 if configured)
+    // REMOTE_TOKEN_GENERATE is /v2/convoai/token/generate
+    // We have a proxy rule for /v2 in vite.config.ts, so we don't need /api prefix
+    const endpoint = REMOTE_TOKEN_GENERATE;
+    const remoteUrl = `${endpoint}${query}`
+
+    const numericUid = Number(userId);
+    const isIntUid = !isNaN(numericUid);
+
+    // VoiceAgent /api/token expects snake_case, but EchoHub BFF /v2 expects camelCase
     const resp = await api.post(remoteUrl, {
+      request_id: genUUID(),
+      channelName: channel ?? '', // Fixed for EchoHub BFF /v2 endpoint
+      channel_name: channel ?? '', // Kept for compatibility if needed
+      uid: String(userId),
+      // Optional fields for direct EchoHub (if bypassing VoiceAgent)
       appId: appId,
-      channelName: channel ?? '',
-      uid: requestUid,
-      type: 1,
+      type: isIntUid ? 1 : 0,
       src: 'Web',
       ts: Date.now().toString()
-    })
+    });
+
     const respData = resp.data
-    console.log('Token Response:', respData); // Log full response to debug
+    console.log('Token Response:', respData);
+
     const token = respData?.data?.token
-    const rtmToken = respData?.data?.rtm_token || respData?.data?.token // Try to get rtm_token, fallback to token
+    let rtmToken = respData?.data?.rtmToken;
+
+    // Fallback if no separate RTM token
+    if (!rtmToken) {
+      rtmToken = token;
+    }
+
     if (!token) {
       throw new Error('Token 生成失败')
     }
+
+    // Prefer server-returned AppID if available to ensure consistency
+    const effectiveAppId = respData?.data?.appId || appId;
+
     return {
       code: respData.code,
       msg: respData.msg,
       data: {
         token,
-        rtmToken, // Return rtmToken
-        appId
+        rtmToken, // Return explicit RTM token
+        sessionId: respData?.data?.sessionId,
+        appId: effectiveAppId,
+        uid: respData?.data?.uid // Return server-assigned UID
       }
     }
   } else {
-    const url = `${API_TOKEN}${query}`
-    const resp = await api.post(url, payload)
-    const resData = localResSchema.parse(resp.data)
-    return resData
+    // Unreachable code kept for reference if needed later for direct EchoHub integration
+    // Direct EchoHub logic (Authenticated)
+    const url = `${API_TOKEN}${query}` // API_TOKEN is now /api/sessions -> /v1/sessions
+
+    const numericUid = Number(userId);
+    const requestUid = !isNaN(numericUid) ? numericUid : `${userId}`;
+
+    const echoHubPayload = {
+      channel: channel ?? '',
+      creator: requestUid,
+      tenantId: '1'
+    }
+
+    const resp = await api.post(url, echoHubPayload)
+    const respData = resp.data
+
+    // EchoHub Response: { code: 0, data: { agoraToken, session: { id } } }
+    if (respData.code !== 0 && respData.code !== 200 && respData.code !== 'OK') {
+      throw new Error(respData.message || 'Failed to retrieve token from EchoHub')
+    }
+
+    const token = respData.data?.agoraToken
+    let rtmToken = respData.data?.rtmToken
+    const sessionId = respData.data?.session?.id
+    // Prefer the explicitly returned numeric UID (for Agent compatibility), fallback to creator ID
+    const authorizedUid = respData.data?.uid || respData.data?.session?.creator
+
+    // Try to get App ID from response, otherwise fallback to env
+    const responseAppId = respData.data?.appId || respData.data?.app_id;
+    const envAppId = (import.meta as any)?.env?.VITE_AGORA_APP_ID || (import.meta as any)?.env?.AGORA_APP_ID || 'bfe2d1894795467e8fbc81cdd61fe329';
+    const appId = responseAppId || envAppId;
+
+    if (responseAppId && responseAppId !== envAppId) {
+      console.warn('[getAgentToken] Server returned AppID differs from local env AppID', { server: responseAppId, local: envAppId });
+    }
+
+    // If RTM token is missing, try to fetch it explicitly (Type 0 for String UID)
+    if (!rtmToken && token) {
+      // Validate RTC Token format (sanity check)
+      if (token.startsWith('{') || token.startsWith('ey')) {
+        console.error('[getAgentToken] CRITICAL ERROR: RTC Token appears to be a JSON string or JWT, NOT an Agora Token! Server is misbehaving.', token.substring(0, 50));
+      }
+
+      try {
+        const rtmUrl = `/api${REMOTE_TOKEN_GENERATE}${query}`
+        console.log('[getAgentToken] Fetching separate RTM token for authenticated user...', { uid: String(userId), appId });
+        const rtmResp = await api.post(rtmUrl, {
+          appId,
+          channelName: channel ?? '',
+          uid: String(userId),
+          type: 0, // RTM Token
+          src: 'Web',
+          ts: Date.now().toString()
+        })
+
+        console.log('[getAgentToken] Raw RTM Fetch Response:', rtmResp.data);
+
+        if (rtmResp.data?.code === 0 && rtmResp.data?.data?.token) {
+          const candidateToken = rtmResp.data.data.token;
+          // Sanity check for RTM token too
+          if (typeof candidateToken === 'string' && !candidateToken.startsWith('{') && !candidateToken.includes('channel')) {
+            rtmToken = candidateToken
+            console.log('[getAgentToken] Fetched separate RTM token successfully')
+          } else {
+            console.error('[getAgentToken] Fetched RTM token is INVALID (looks like JSON/Request Body):', candidateToken);
+          }
+        } else {
+          console.warn('[getAgentToken] RTM token fetch returned error', rtmResp.data);
+        }
+      } catch (e) {
+        console.warn('[getAgentToken] Failed to fetch separate RTM token, will fallback to RTC token', e)
+      }
+    }
+
+    // Fallback to RTC token if RTM fetch failed
+    if (!rtmToken) {
+      rtmToken = token
+    }
+
+    if (!token) {
+      throw new Error('Token missing in EchoHub response')
+    }
+
+    return {
+      code: 0,
+      msg: 'success',
+      data: {
+        token,
+        appId,
+        rtmToken,
+        sessionId,
+        uid: authorizedUid // Return the actual UID used for token generation
+      }
+    }
   }
+}
+
+// Authenticated EchoHub: attach agent to an existing session
+export const createEchoHubSessionAgent = async (
+  sessionId: string,
+  body: {
+    name?: string
+    remoteRtcUids?: (string | number)[]
+    asr?: any
+    tts?: any
+    llm?: any
+    modelId?: string
+  }
+) => {
+  const url = `/api/sessions/${sessionId}/agent`
+  const payload = {
+    ...body,
+    remoteRtcUids: (body.remoteRtcUids || []).map((u) => String(u))
+  }
+  const resp = await api.post(url, payload)
+  return resp.data
 }
 
 export const startAgent = async (
@@ -155,10 +292,11 @@ export const startAgent = async (
     ? localStartAgentPropertiesSchema.parse(payload)
     : localOpensourceStartAgentPropertiesSchema.parse(payload)
 
+  let opensourceData = data as z.infer<
+    typeof localOpensourceStartAgentPropertiesSchema
+  >
+
   try {
-    const opensourceData = data as z.infer<
-      typeof localOpensourceStartAgentPropertiesSchema
-    >
     const llm_system_messages = opensourceData.llm?.system_messages?.trim()
       ? JSON.parse(opensourceData.llm.system_messages)
       : undefined
@@ -233,11 +371,24 @@ export const startAgent = async (
         app_id: appId,
         basic_auth_username: basicAuthUsername,
         basic_auth_password: basicAuthPassword,
-        preset_name: (data as any).preset_name || 'default',
+        preset_name: (data as any).preset_name || '',
         convoai_body: convoaiBody
       }
 
+      console.log('[startAgent] Sending start request to BFF...', {
+        url: REMOTE_CONVOAI_AGENT_START,
+        payloadSummary: {
+          appId,
+          preset: remotePayload.preset_name,
+          channel: convoaiBody.properties.channel,
+          agentUid: convoaiBody.properties.agent_rtc_uid,
+          remoteUids: convoaiBody.properties.remote_rtc_uids,
+          tokenPrefix: convoaiBody.properties.token?.substring(0, 10) + '...'
+        }
+      });
+
       const resp = await api.post(REMOTE_CONVOAI_AGENT_START, remotePayload)
+      console.log('[startAgent] Response:', resp.data);
       const respData = resp.data
       const remoteRespSchema = basicRemoteResSchema.extend({
         data: remoteAgentStartRespDataSchema
@@ -316,7 +467,7 @@ export const stopAgent = async (
   }
 }
 
-export const heartbeat = async (
+export const pingAgent = async (
   payload: z.infer<typeof remoteAgentPingReqSchema>
 ) => {
   const baseURL = (import.meta as any)?.env?.VITE_API_BASE_URL || ''

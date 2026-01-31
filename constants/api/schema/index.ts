@@ -58,12 +58,13 @@ const remoteResSchema = basicRemoteResSchema.extend({
   data: remoteResDataSchema
 })
 
-export const localResSchema = remoteResSchema.extend({
+export const localResSchema = basicRemoteResSchema.extend({
   data: z.object({
     token: z.string(),
     appId: z.string(),
-    rtmToken: z.string().optional()
-  })
+    rtmToken: z.string().optional(),
+    sessionId: z.string().optional()
+  }).optional()
 })
 
 export const remoteUserInfoUpdateSchema = basicRemoteResSchema.extend({

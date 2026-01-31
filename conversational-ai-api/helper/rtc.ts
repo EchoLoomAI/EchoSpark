@@ -51,7 +51,7 @@ export class RTCHelper extends EventHelper<
   public token: string | null = null
   public rtmToken: string | null = null
   public channelName: string | null = null
-  public userId: string | null = null
+  public userId: string | number | null = null
   private processor: IAIDenoiserProcessor | null = null
 
   constructor() {
@@ -65,7 +65,7 @@ export class RTCHelper extends EventHelper<
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       ; (AgoraRTC as any).setParameter('{"rtc.log_external_input": true}')
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      ; (AgoraRTC as any).setLogLevel?.(4)
+      ; (AgoraRTC as any).setLogLevel?.(0)
     // // eslint-disable-next-line @typescript-eslint/no-explicit-any
     // ;(AgoraRTC as any).setParameter('ENABLE_AUDIO_RED', true)
     // // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -98,7 +98,22 @@ export class RTCHelper extends EventHelper<
       this.appId = resData.data.appId
       this.token = resData.data.token
       this.rtmToken = resData.data.rtmToken ?? null
+      if (resData.data.uid !== undefined) {
+        const val = resData.data.uid
+        if (typeof val === 'number') {
+          this.userId = val
+        } else if (
+          typeof val === 'string' &&
+          !isNaN(Number(val)) &&
+          val.trim() !== ''
+        ) {
+          this.userId = Number(val)
+        } else {
+          this.userId = String(val)
+        }
+      }
       this.channelName = channel ?? null
+      return resData.data
     } catch (error) {
       console.error('Failed to retrieve token', error)
       throw new Error('Failed to retrieve token')
@@ -118,6 +133,16 @@ export class RTCHelper extends EventHelper<
       console.log({ channel, userId }, 'Already initialized')
       return
     }
+
+    // Enable Cloud Proxy (TCP/TLS) to resolve TURN timeout (Error 701)
+    // Agora Web SDK 4.x: Mode 3 = UDP, Mode 5 = TCP (Mode 1 is deprecated)
+    try {
+      await this.client.startProxyServer(5);
+      console.log('[RTCHelper] Cloud Proxy enabled (Mode 5: TCP/TLS)');
+    } catch (err) {
+      console.warn('[RTCHelper] Failed to enable Cloud Proxy:', err);
+    }
+
     this.bindRtcEvents()
     this.channelName = channel
     if (!this.appId || !this.token) {

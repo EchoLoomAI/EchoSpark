@@ -20,17 +20,17 @@ export enum SIP_ERROR_CODE {
 }
 // --- LOCAL API ---
 
-export const API_TOKEN = '/token'
+export const API_TOKEN = '/api/sessions'
 
-export const API_AGENT = '/agent'
+export const API_AGENT = '/api/agent'
 export const API_AGENT_STOP = `${API_AGENT}/stop`
 export const API_AGENT_PRESETS = `${API_AGENT}/presets`
 export const API_AGENT_PING = `${API_AGENT}/ping`
 export const API_AGENT_CUSTOM_PRESET = `${API_AGENT}/customPresets/search`
 
-export const API_AUTH_TOKEN = `/api/sso/login`
-export const API_USER_INFO = '/api/sso/userInfo'
-export const API_USER_UPDATE = '/api/sso/user/update'
+export const API_AUTH_TOKEN = `/api/auth/login`
+export const API_USER_INFO = '/api/users/me'
+export const API_USER_UPDATE = '/api/users/update'
 export const API_UPLOAD_LOG = '/api/upload/log'
 export const API_UPLOAD_IMAGE = '/api/upload/image'
 export const API_UPLOAD_FILE = '/api/upload/file'
@@ -52,8 +52,9 @@ export const REMOTE_CONVOAI_GET_CUSTOM_PRESET =
   '/convoai/v5/customPresets/search'
 
 export const REMOTE_SSO_LOGIN = '/v1/convoai/sso/callback'
-export const LOGIN_URL = `${process.env.NEXT_PUBLIC_SSO_LOGIN_URL}/v1/convoai/sso/login`
-export const SIGNUP_URL = `${process.env.NEXT_PUBLIC_SSO_LOGIN_URL}/v1/convoai/sso/signup`
+// Unused constants relying on undefined process.env.NEXT_PUBLIC_SSO_LOGIN_URL
+// export const LOGIN_URL = `${process.env.NEXT_PUBLIC_SSO_LOGIN_URL}/v1/convoai/sso/login`
+// export const SIGNUP_URL = `${process.env.NEXT_PUBLIC_SSO_LOGIN_URL}/v1/convoai/sso/signup`
 export const REMOTE_USER_INFO = '/v1/convoai/sso/userInfo'
 export const REMOTE_USER_UPDATE = '/v1/convoai/sso/user/update'
 export const REMOTE_UPLOAD_LOG = '/v1/convoai/upload/log'
