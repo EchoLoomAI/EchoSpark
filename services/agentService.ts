@@ -268,6 +268,11 @@ export const createEchoHubSessionAgent = async (
     tts?: any
     llm?: any
     modelId?: string
+    advanced_features?: {
+      enable_bhvs?: boolean
+      enable_aivad?: boolean
+      enable_rtm?: boolean
+    }
   }
 ) => {
   const url = `/api/sessions/${sessionId}/agent`

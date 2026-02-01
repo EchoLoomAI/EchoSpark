@@ -755,6 +755,35 @@ export class ConversationalAIAPI extends EventHelper<IConversationalAIAPIEventHa
     }
   }
 
+  private _handleRtcStreamMessage(uid: string | number, payload: Uint8Array) {
+    const traceId = genTranceID()
+    this.callMessagePrint(
+      ELoggerType.debug,
+      `>>> [trancID:${traceId}] ${ERTCEvents.STREAM_MESSAGE}`,
+      `uid: ${uid}`
+    )
+    try {
+      const decoder = new TextDecoder('utf-8')
+      const messageString = decoder.decode(payload)
+      const parsedMessage = JSON.parse(messageString)
+      this.callMessagePrint(
+        ELoggerType.debug,
+        `>>> [trancID:${traceId}] ${ERTCEvents.STREAM_MESSAGE}`,
+        parsedMessage
+      )
+      this.covSubRenderController.handleMessage(parsedMessage, {
+        publisher: String(uid)
+      })
+    } catch (error) {
+      this.callMessagePrint(
+        ELoggerType.error,
+        `>>> [trancID:${traceId}] ${ERTCEvents.STREAM_MESSAGE}`,
+        'Failed to parse message',
+        error
+      )
+    }
+  }
+
   private _handleRtmMessage(message: RTMEvents.MessageEvent) {
     const traceId = genTranceID()
     this.callMessagePrint(

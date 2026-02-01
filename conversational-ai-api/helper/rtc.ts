@@ -146,7 +146,7 @@ export class RTCHelper extends EventHelper<
     this.bindRtcEvents()
     this.channelName = channel
     if (!this.appId || !this.token) {
-      await this.retrieveToken(userId, undefined, false, options)
+      await this.retrieveToken(userId, channel, false, options)
     }
     // // set client role as host
     // this.client.setClientRole('host')

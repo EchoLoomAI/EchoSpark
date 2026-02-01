@@ -433,6 +433,11 @@ export const useAgoraVoiceAgent = ({ onTranscript, onAgentStateChange }: UseAgor
                     },
                     asr: {
                         lang: asrLang
+                    },
+                    advanced_features: {
+                        enable_rtm: true,
+                        enable_bhvs: false,
+                        enable_aivad: false
                     }
                 });
             } else {
