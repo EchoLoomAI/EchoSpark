@@ -5,7 +5,7 @@ import {
     UID,
 } from 'agora-rtc-sdk-ng';
 import { useMultibandTrackVolume } from './useMultibandTrackVolume';
-import { getAgentToken, startAgent, stopAgent, createEchoHubSessionAgent, pingAgent } from '../services/agentService';
+import { getAgentToken, startAgent, stopAgent, createEchoHubSessionAgent, pingAgent, getAgentPresets } from '../services/agentService';
 import { toast } from 'sonner';
 import { RTCHelper } from '../conversational-ai-api/helper/rtc';
 import { RTMHelper } from '../conversational-ai-api/helper/rtm';
@@ -98,8 +98,17 @@ export const useAgoraVoiceAgent = ({ onTranscript, onAgentStateChange }: UseAgor
     const startSession = useCallback(async (
         uid: number | string,
         channelName: string,
-        systemPrompt?: string
+        configOrSystemPrompt?: string | { systemPrompt?: string, agentId?: string }
     ) => {
+        let systemPrompt: string | undefined;
+        let agentId: string | undefined;
+
+        if (typeof configOrSystemPrompt === 'string') {
+            systemPrompt = configOrSystemPrompt;
+        } else if (configOrSystemPrompt) {
+            systemPrompt = configOrSystemPrompt.systemPrompt;
+            agentId = configOrSystemPrompt.agentId;
+        }
         const currentAttemptId = Date.now().toString() + Math.random().toString().slice(2);
         attemptIdRef.current = currentAttemptId;
 
@@ -116,11 +125,16 @@ export const useAgoraVoiceAgent = ({ onTranscript, onAgentStateChange }: UseAgor
             setConnectionStatus('connecting');
             onAgentStateChange?.('connecting');
 
-            // If UID is not provided or invalid, generate a random Int UID (range 100000-999999)
-            // This matches VoiceAgent's genUserId() logic
+            // 1. Determine Effective UID
+            // Priority: Argument UID > LocalStorage UID > Error
             let effectiveUid = uid;
             if (!effectiveUid) {
-                effectiveUid = getRandomInt(100000, 999999);
+                const storedUid = localStorage.getItem('uid');
+                if (storedUid) {
+                    effectiveUid = storedUid;
+                } else {
+                    throw new Error("User ID is required. Please ensure you are logged in.");
+                }
             }
 
             uidRef.current = effectiveUid;
@@ -134,8 +148,26 @@ export const useAgoraVoiceAgent = ({ onTranscript, onAgentStateChange }: UseAgor
                 stopSession();
             }, CONNECTION_TIMEOUT);
 
-            // 1. Initialize Helpers
-            console.log('[useAgoraVoiceAgent] 1. Initializing Helpers...');
+            // 2. Fetch Agent Configuration (EchoHub)
+            // Before retrieving token, ensure we have the agent configuration
+            console.log('[useAgoraVoiceAgent] 2. Fetching Agent Configuration for UID:', effectiveUid);
+            try {
+                // We use effectiveUid (or localStorage uid) to fetch presets
+                // Note: getAgentPresets expects accountUid string
+                const accountUid = String(effectiveUid);
+                const presets = await getAgentPresets({ accountUid });
+                console.log('[useAgoraVoiceAgent] Fetched agent presets:', presets?.length || 0);
+
+                // If agentId is not provided, we might want to pick one from presets?
+                // For now, we just log it as requested by user to "query EchoHub"
+                // This ensures the backend knows we are active or validates the user
+            } catch (configErr) {
+                console.warn('[useAgoraVoiceAgent] Failed to fetch agent config, proceeding...', configErr);
+                // We don't block session start if config fetch fails, unless critical
+            }
+
+            // 3. Initialize Helpers
+            console.log('[useAgoraVoiceAgent] 3. Initializing Helpers...');
             const rtcHelper = RTCHelper.getInstance();
             const rtmHelper = RTMHelper.getInstance();
 
@@ -145,10 +177,10 @@ export const useAgoraVoiceAgent = ({ onTranscript, onAgentStateChange }: UseAgor
                 return;
             }
 
-            // 2. Retrieve Token
-            console.log(`[useAgoraVoiceAgent] 2. Retrieving Token for UID: ${uid}, Channel: ${channelName}`);
+            // 4. Retrieve Token
+            console.log(`[useAgoraVoiceAgent] 4. Retrieving Token for UID: ${effectiveUid}, Channel: ${channelName}`);
             // Note: retrieveToken in RTCHelper uses getAgentToken internally
-            const tokenData = await rtcHelper.retrieveToken(uid, channelName, false);
+            const tokenData = await rtcHelper.retrieveToken(effectiveUid, channelName, false);
 
             if (attemptIdRef.current !== currentAttemptId) {
                 console.warn('[useAgoraVoiceAgent] Session aborted after token retrieval');
@@ -173,8 +205,8 @@ export const useAgoraVoiceAgent = ({ onTranscript, onAgentStateChange }: UseAgor
                 tokenPrefix: token?.substring(0, 10) + '...'
             });
 
-            // 3. Initialize RTM
-            console.log('[useAgoraVoiceAgent] 3. Initializing RTM with AppID:', appId, 'UID:', finalUid);
+            // 5. Initialize RTM
+            console.log('[useAgoraVoiceAgent] 5. Initializing RTM with AppID:', appId, 'UID:', finalUid);
             rtmHelper.initClient({
                 app_id: appId,
                 user_id: String(finalUid)
@@ -197,8 +229,8 @@ export const useAgoraVoiceAgent = ({ onTranscript, onAgentStateChange }: UseAgor
                 return;
             }
 
-            // 4. Initialize ConversationalAIAPI
-            console.log('[useAgoraVoiceAgent] 4. Initializing ConversationalAIAPI');
+            // 6. Initialize ConversationalAIAPI
+            console.log('[useAgoraVoiceAgent] 6. Initializing ConversationalAIAPI');
             const conversationalAIAPI = ConversationalAIAPI.init({
                 rtcEngine: rtcHelper.client,
                 rtmEngine: rtmEngine,
@@ -206,8 +238,8 @@ export const useAgoraVoiceAgent = ({ onTranscript, onAgentStateChange }: UseAgor
                 renderMode: ETranscriptHelperMode.TEXT // Use text mode for subtitles
             });
 
-            // 5. Bind Events
-            console.log('[useAgoraVoiceAgent] 5. Binding Events');
+            // 7. Bind Events
+            console.log('[useAgoraVoiceAgent] 7. Binding Events');
             conversationalAIAPI.on(
                 EConversationalAIAPIEvents.TRANSCRIPT_UPDATED,
                 (chatHistory: ITranscriptHelperItem<Partial<IUserTranscription | IAgentTranscription>>[]) => {
@@ -262,8 +294,8 @@ export const useAgoraVoiceAgent = ({ onTranscript, onAgentStateChange }: UseAgor
             console.log('[useAgoraVoiceAgent] Subscribing to channel messages');
             conversationalAIAPI.subscribeMessage(channelName);
 
-            // 6. Setup Audio & Join RTC
-            console.log('[useAgoraVoiceAgent] 6. Setting up Audio & Joining RTC');
+            // 8. Setup Audio & Join RTC
+            console.log('[useAgoraVoiceAgent] 8. Setting up Audio & Joining RTC');
             // Temporarily disable denoiser to rule out WASM/AudioContext issues causing ICE timeout
             // await rtcHelper.initDenoiserProcessor();
             const tracks = await rtcHelper.createTracks();
@@ -328,10 +360,10 @@ export const useAgoraVoiceAgent = ({ onTranscript, onAgentStateChange }: UseAgor
                 return;
             }
 
-            // 7. Start Agent Backend
+            // 9. Start Agent Backend
             // Use random Agent UID to match VoiceAgent pattern
             const targetAgentUid = agentUidRef.current;
-            console.log('[useAgoraVoiceAgent] 7. Starting Agent with Target UID:', targetAgentUid);
+            console.log('[useAgoraVoiceAgent] 9. Starting Agent with Target UID:', targetAgentUid);
 
             // Note: We use the User's RTC Token (Type 1) for the startAgent payload
             // This aligns with VoiceAgent's behavior where it passes the token used for joining.
@@ -352,7 +384,7 @@ export const useAgoraVoiceAgent = ({ onTranscript, onAgentStateChange }: UseAgor
 
             const asrLang = import.meta.env.NEXT_PUBLIC_CUSTOM_ASR_LANG || 'zh-CN';
 
-            let modelId: string | undefined = undefined;
+            let modelId: string | undefined = agentId;
             let llmParams: Record<string, any> = {};
             let llmUrl: string | undefined = undefined;
             let llmKey: string | undefined = undefined;

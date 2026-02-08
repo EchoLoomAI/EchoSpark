@@ -78,9 +78,45 @@ export const getAgentPresets = async (options?: TDevModeQuery) => {
 
   if (!accountUid) return null;
 
-  const resp = await api.get(url)
-  return resp.data as IAgentPreset[]
+  const resp = await api.get(url, {
+    params: {
+      uid: accountUid
+    }
+  })
+  const data = resp.data;
+
+  if (Array.isArray(data)) {
+    return data as IAgentPreset[];
+  }
+
+  if (data && Array.isArray(data.data)) {
+    return data.data as IAgentPreset[];
+  }
+
+  console.warn('Unexpected presets response format:', data);
+  return [];
 }
+
+export const getAgentConfig = async (agentType: string, scene: string) => {
+  const accountUid = localStorage.getItem('uid') || 'default';
+  const presets = await getAgentPresets({ accountUid });
+
+  if (!presets || !Array.isArray(presets) || presets.length === 0) return null;
+
+  const keywords: Record<string, string[]> = {
+    'profile': ['profile', '侧写', '引导'],
+    'interview': ['interview', '访谈', '回忆'],
+    'casual': ['casual', 'chat', '聊天']
+  };
+
+  const targetKeywords = keywords[scene] || [scene];
+
+  return presets.find(p => {
+    const name = (p as any).name?.toLowerCase() || '';
+    const displayName = (p as any).display_name?.toLowerCase() || '';
+    return targetKeywords.some(k => name.includes(k) || displayName.includes(k));
+  });
+};
 
 export const getAgentToken = async (
   userId: string | number,
@@ -268,6 +304,14 @@ export const createEchoHubSessionAgent = async (
     tts?: any
     llm?: any
     modelId?: string
+    filler_words?: any
+    vad?: any
+    turn_detection?: any
+    avatar?: any
+    sal?: any
+    parameters?: any
+    rtc?: any
+    labels?: any
     advanced_features?: {
       enable_bhvs?: boolean
       enable_aivad?: boolean

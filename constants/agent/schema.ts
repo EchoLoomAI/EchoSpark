@@ -54,6 +54,8 @@ export const agentPresetSipSchema = z.object({
 
 export const agentPresetSchema = z.object({
   // index: z.number(),
+  agent_id: z.string().optional(),
+  id: z.string().optional(),
   advanced_features_enable_sal: z.boolean().optional(),
   name: z.string(),
   display_name: z.string(),
@@ -260,7 +262,8 @@ export const localStartAgentPropertiesBaseSchema = z.object({
   channel: z.string().describe('channel-name'),
   token: z.string().describe('token').optional(),
   agent_rtc_uid: z.string().describe('agent-rtc-uid'),
-  remote_rtc_uids: z.array(z.string()).describe('remote-rtc-uid list')
+  remote_rtc_uids: z.array(z.string()).describe('remote-rtc-uid list'),
+  enable_string_uid: z.boolean().describe('Enable String UID').optional()
 })
 
 export const localStartAgentPropertiesSchema =

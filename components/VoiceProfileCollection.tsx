@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { VoiceVisualizer } from './VoiceVisualizer';
 import { useAgoraVoiceAgent, AgentState } from '../hooks/useAgoraVoiceAgent';
+import { getAgentConfig } from '../services/agentService';
 import { genUserId } from '@/lib/utils';
 
 interface Props {
@@ -96,23 +97,27 @@ const VoiceProfileCollection: React.FC<Props> = ({ onComplete }) => {
     const uid = uidStr ? Number(uidStr) : genUserId();
     const channelName = `voice-profile-${uid}`;
 
-    const systemInstruction = `
-      你是回声灵犀的AI引导助手。
-      【重要任务】：
-      1. **必须主动开口**：对话开始后，请立即热情地打招呼，不要等待用户先说话。
-      2. **开场白**：“您好呀！我是灵犀。很高兴能为您记录故事。咱们先认识一下，请问您怎么称呼？”
-      3. **适老化对话**：语速要慢，语气要亲切、耐心，像和长辈聊天一样。
-      4. **信息采集**：通过自然对话收集用户的：昵称、年龄、性别、出生地、职业、常用方言。
-      5. **单次单问**：一次只问一个问题，不要让用户感到压力。
-      6. **数据记录**：每当你获得用户的某个信息时，请务必在回复中包含以下格式的JSON数据（不要使用markdown代码块，直接输出）：
-         $$PROFILE_UPDATE$$ {"key": "nickname", "value": "..."} $$
-         支持的key包括：nickname, age (数字), gender (男/女), birthplace, occupation, dialect。
-         例如：
-         - 用户说“叫我张大爷”，回复：“好的张大爷... $$PROFILE_UPDATE$$ {"key": "nickname", "value": "张大爷"} $$”
-         - 用户说“今年75了”，回复：“75岁身子骨还很硬朗呢... $$PROFILE_UPDATE$$ {"key": "age", "value": 75} $$”
+    const config = await getAgentConfig('profile', 'profile');
+    if (!config) {
+      console.error("未找到侧写智能体配置");
+      // Fallback or show error? For now just log.
+      return;
+    }
+
+    // Protocol instruction to ensure the agent outputs data in the format frontend expects
+    const protocolInstruction = `
+      【重要数据记录协议】：
+      每当获得用户的【昵称、年龄、性别、出生地、职业、常用方言】信息时，请务必在回复中包含以下格式的JSON数据（直接输出，不要使用markdown）：
+      $$PROFILE_UPDATE$$ {"key": "字段名", "value": "值"} $$
+      
+      支持的key包括：nickname, age (数字), gender (男/女), birthplace, occupation, dialect。
+      例如：$$PROFILE_UPDATE$$ {"key": "nickname", "value": "张大爷"} $$
     `;
 
-    await startAgoraSession(uid, channelName, systemInstruction);
+    await startAgoraSession(uid, channelName, {
+      agentId: config.agent_id,
+      systemPrompt: protocolInstruction
+    });
   };
 
   const stopSession = () => {
