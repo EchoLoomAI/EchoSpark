@@ -24,6 +24,7 @@ export const API_TOKEN = '/api/sessions'
 
 export const API_AGENT = '/api/agent'
 export const API_AGENT_STOP = `${API_AGENT}/stop`
+export const API_AGENT_MATCH = '/api/agents/match'
 export const API_AGENT_PRESETS = `${API_AGENT}/presets`
 export const API_AGENT_PING = `${API_AGENT}/ping`
 export const API_AGENT_CUSTOM_PRESET = `${API_AGENT}/customPresets/search`

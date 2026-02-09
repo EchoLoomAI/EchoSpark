@@ -5,6 +5,7 @@ import {
   API_AGENT_CUSTOM_PRESET,
   API_AGENT_PING,
   API_AGENT_PRESETS,
+  API_AGENT_MATCH,
   API_AGENT_STOP,
   API_TOKEN,
   API_UPLOAD_FILE,
@@ -118,12 +119,26 @@ export const getAgentConfig = async (agentType: string, scene: string) => {
   });
 };
 
+export const matchAgent = async (params: {
+  userId: string
+  scenario: string
+  agentType: string
+  userType?: string
+}) => {
+  const resp = await api.post(API_AGENT_MATCH, params)
+  const respData = resp.data
+  if (respData.code !== 'OK' && respData.code !== 0) {
+    throw new Error(respData.message || 'Agent matching failed')
+  }
+  return respData.data.agent
+}
+
 export const getAgentToken = async (
   userId: string | number,
   channel?: string,
-  options?: TDevModeQuery
+  options?: TDevModeQuery & { agentId?: string }
 ) => {
-  const { devMode } = options ?? {}
+  const { devMode, agentId } = options ?? {}
   const query = generateDevModeQuery({ devMode })
   const baseURL = (import.meta as any)?.env?.VITE_API_BASE_URL || ''
   const isRemoteToolbox = baseURL.includes('service.apprtc.cn')
@@ -164,7 +179,8 @@ export const getAgentToken = async (
       appId: appId,
       type: isIntUid ? 1 : 0,
       src: 'Web',
-      ts: Date.now().toString()
+      ts: Date.now().toString(),
+      agentId: agentId // Pass agentId for auto-attachment
     });
 
     const respData = resp.data
@@ -207,7 +223,8 @@ export const getAgentToken = async (
     const echoHubPayload = {
       channel: channel ?? '',
       creator: requestUid,
-      tenantId: '1'
+      tenantId: '1',
+      agentId: agentId // Pass agentId for auto-attachment
     }
 
     const resp = await api.post(url, echoHubPayload)

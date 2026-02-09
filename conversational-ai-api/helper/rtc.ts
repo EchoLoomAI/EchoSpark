@@ -86,7 +86,7 @@ export class RTCHelper extends EventHelper<
     userId: string | number,
     channel?: string,
     force?: boolean,
-    options?: { devMode?: boolean }
+    options?: { devMode?: boolean; agentId?: string }
   ) {
     if (!force && this.appId && this.token) {
       return

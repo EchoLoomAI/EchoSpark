@@ -5,7 +5,7 @@ import {
     UID,
 } from 'agora-rtc-sdk-ng';
 import { useMultibandTrackVolume } from './useMultibandTrackVolume';
-import { getAgentToken, startAgent, stopAgent, createEchoHubSessionAgent, pingAgent, getAgentPresets } from '../services/agentService';
+import { getAgentToken, startAgent, stopAgent, createEchoHubSessionAgent, pingAgent, getAgentPresets, matchAgent } from '../services/agentService';
 import { toast } from 'sonner';
 import { RTCHelper } from '../conversational-ai-api/helper/rtc';
 import { RTMHelper } from '../conversational-ai-api/helper/rtm';
@@ -98,7 +98,7 @@ export const useAgoraVoiceAgent = ({ onTranscript, onAgentStateChange }: UseAgor
     const startSession = useCallback(async (
         uid: number | string,
         channelName: string,
-        configOrSystemPrompt?: string | { systemPrompt?: string, agentId?: string }
+        configOrSystemPrompt?: string | { systemPrompt?: string, agentId?: string, scenario?: string, userType?: string }
     ) => {
         let systemPrompt: string | undefined;
         let agentId: string | undefined;
@@ -148,22 +148,35 @@ export const useAgoraVoiceAgent = ({ onTranscript, onAgentStateChange }: UseAgor
                 stopSession();
             }, CONNECTION_TIMEOUT);
 
-            // 2. Fetch Agent Configuration (EchoHub)
-            // Before retrieving token, ensure we have the agent configuration
-            console.log('[useAgoraVoiceAgent] 2. Fetching Agent Configuration for UID:', effectiveUid);
+            // 2. Match Agent (EchoHub)
+            console.log('[useAgoraVoiceAgent] 2. Matching Agent for UID:', effectiveUid);
+            let matchedAgentId: string | undefined = agentId;
             try {
-                // We use effectiveUid (or localStorage uid) to fetch presets
-                // Note: getAgentPresets expects accountUid string
                 const accountUid = String(effectiveUid);
-                const presets = await getAgentPresets({ accountUid });
-                console.log('[useAgoraVoiceAgent] Fetched agent presets:', presets?.length || 0);
+                
+                const configObj = typeof configOrSystemPrompt === 'object' ? configOrSystemPrompt : {};
+                const rawScenario = ((configObj as any).scenario || 'chat').toLowerCase();
+                const userType = (configObj as any).userType || 'free';
 
-                // If agentId is not provided, we might want to pick one from presets?
-                // For now, we just log it as requested by user to "query EchoHub"
-                // This ensures the backend knows we are active or validates the user
+                let subType = 'CHAT';
+                if (rawScenario.includes('interview')) subType = 'INTERVIEW';
+                else if (rawScenario.includes('profile') || rawScenario.includes('profiling')) subType = 'PROFILING';
+
+                if (!matchedAgentId) {
+                     const agent = await matchAgent({
+                        userId: accountUid,
+                        scenario: subType,
+                        agentType: 'CONVERSATIONAL',
+                        userType: userType
+                    });
+                    if (agent) {
+                        matchedAgentId = agent.id;
+                        console.log('[useAgoraVoiceAgent] Matched Agent:', agent.name, agent.id);
+                        agentIdRef.current = agent.id;
+                    }
+                }
             } catch (configErr) {
-                console.warn('[useAgoraVoiceAgent] Failed to fetch agent config, proceeding...', configErr);
-                // We don't block session start if config fetch fails, unless critical
+                console.warn('[useAgoraVoiceAgent] Failed to match agent, proceeding with defaults...', configErr);
             }
 
             // 3. Initialize Helpers
@@ -180,7 +193,7 @@ export const useAgoraVoiceAgent = ({ onTranscript, onAgentStateChange }: UseAgor
             // 4. Retrieve Token
             console.log(`[useAgoraVoiceAgent] 4. Retrieving Token for UID: ${effectiveUid}, Channel: ${channelName}`);
             // Note: retrieveToken in RTCHelper uses getAgentToken internally
-            const tokenData = await rtcHelper.retrieveToken(effectiveUid, channelName, false);
+            const tokenData = await rtcHelper.retrieveToken(effectiveUid, channelName, false, { agentId: matchedAgentId });
 
             if (attemptIdRef.current !== currentAttemptId) {
                 console.warn('[useAgoraVoiceAgent] Session aborted after token retrieval');

@@ -11,7 +11,6 @@ import {
 } from 'lucide-react';
 import { VoiceVisualizer } from './VoiceVisualizer';
 import { useAgoraVoiceAgent, AgentState } from '../hooks/useAgoraVoiceAgent';
-import { getAgentConfig } from '../services/agentService';
 import { genUserId } from '@/lib/utils';
 
 interface Props {
@@ -97,13 +96,6 @@ const VoiceProfileCollection: React.FC<Props> = ({ onComplete }) => {
     const uid = uidStr ? Number(uidStr) : genUserId();
     const channelName = `voice-profile-${uid}`;
 
-    const config = await getAgentConfig('profile', 'profile');
-    if (!config) {
-      console.error("未找到侧写智能体配置");
-      // Fallback or show error? For now just log.
-      return;
-    }
-
     // Protocol instruction to ensure the agent outputs data in the format frontend expects
     const protocolInstruction = `
       【重要数据记录协议】：
@@ -114,9 +106,12 @@ const VoiceProfileCollection: React.FC<Props> = ({ onComplete }) => {
       例如：$$PROFILE_UPDATE$$ {"key": "nickname", "value": "张大爷"} $$
     `;
 
+    // Pass scenario='profile' to trigger dynamic matching in the hook
+    // Cast to any to bypass strict type check until hook types are updated
     await startAgoraSession(uid, channelName, {
-      agentId: config.agent_id,
-      systemPrompt: protocolInstruction
+      systemPrompt: protocolInstruction,
+      // @ts-ignore
+      scenario: 'profile'
     });
   };
 

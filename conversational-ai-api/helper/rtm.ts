@@ -85,9 +85,13 @@ export class RTMHelper {
       return
     }
 
+    // Capture and detach client immediately to prevent race conditions
+    const clientToCleanup = this.client;
+    this.client = null;
+
     if (this.channel) {
       try {
-        await this.client.unsubscribe(this.channel)
+        await clientToCleanup.unsubscribe(this.channel)
       } catch (error) {
         console.warn(`${RTMHelper.NAME} unsubscribe failed:`, error)
       }
@@ -95,12 +99,10 @@ export class RTMHelper {
     }
 
     try {
-      await this.client.logout()
+      await clientToCleanup.logout()
       console.log(`${RTMHelper.NAME} logged out successfully`)
     } catch (error) {
       console.warn(`${RTMHelper.NAME} logout failed:`, error)
     }
-
-    this.client = null
   }
 }
