@@ -98,16 +98,18 @@ export const useAgoraVoiceAgent = ({ onTranscript, onAgentStateChange }: UseAgor
     const startSession = useCallback(async (
         uid: number | string,
         channelName: string,
-        configOrSystemPrompt?: string | { systemPrompt?: string, agentId?: string, scenario?: string, userType?: string }
+        configOrSystemPrompt?: string | { systemPrompt?: string, agentId?: string, scenario?: string, userType?: string, token?: string, appId?: string, properties?: any }
     ) => {
         let systemPrompt: string | undefined;
         let agentId: string | undefined;
+        let properties: any | undefined;
 
         if (typeof configOrSystemPrompt === 'string') {
             systemPrompt = configOrSystemPrompt;
         } else if (configOrSystemPrompt) {
             systemPrompt = configOrSystemPrompt.systemPrompt;
             agentId = configOrSystemPrompt.agentId;
+            properties = configOrSystemPrompt.properties;
         }
         const currentAttemptId = Date.now().toString() + Math.random().toString().slice(2);
         attemptIdRef.current = currentAttemptId;
@@ -454,37 +456,51 @@ export const useAgoraVoiceAgent = ({ onTranscript, onAgentStateChange }: UseAgor
             if (sessionId) {
                 console.log('[useAgoraVoiceAgent] Using EchoHub Session Agent flow', { sessionId });
 
-                const llmPayload: any = {
-                    system_messages: finalSystemMessages,
-                    params: llmParams
-                };
-
-                if (llmUrl) {
-                    llmPayload.url = llmUrl;
-                    llmPayload.vendor = 'custom'; // or derive?
-                }
-                if (llmKey) {
-                    llmPayload.api_key = llmKey;
-                }
-
-                startRes = await createEchoHubSessionAgent(sessionId, {
+                // Construct base payload
+                const sessionAgentPayload: any = {
                     name: `agent-${sessionId}`,
                     remoteRtcUids: [String(finalUid)],
-                    modelId,
-                    llm: llmPayload,
-                    tts: {
+                    modelId
+                };
+
+                // If properties provided (from matchAgent), use them as source of truth.
+                // Session Service will handle the merge logic (baseProps = properties).
+                if (properties) {
+                    console.log('[useAgoraVoiceAgent] Using provided properties for agent configuration');
+                    sessionAgentPayload.properties = properties;
+                    // We intentionally omit top-level llm/tts/asr here to allow properties to take precedence via Session Service logic
+                    // However, we still need to pass remoteRtcUids as it is required/merged.
+                } else {
+                    // Fallback to legacy construction if no properties provided
+                    const llmPayload: any = {
+                        system_messages: finalSystemMessages,
+                        params: llmParams
+                    };
+
+                    if (llmUrl) {
+                        llmPayload.url = llmUrl;
+                        llmPayload.vendor = 'custom';
+                    }
+                    if (llmKey) {
+                        llmPayload.api_key = llmKey;
+                    }
+                    
+                    sessionAgentPayload.llm = llmPayload;
+                    sessionAgentPayload.tts = {
                         vendor: ttsVendor,
                         params: ttsParams
-                    },
-                    asr: {
+                    };
+                    sessionAgentPayload.asr = {
                         lang: asrLang
-                    },
-                    advanced_features: {
+                    };
+                    sessionAgentPayload.advanced_features = {
                         enable_rtm: true,
                         enable_bhvs: false,
                         enable_aivad: false
-                    }
-                });
+                    };
+                }
+
+                startRes = await createEchoHubSessionAgent(sessionId, sessionAgentPayload);
             } else {
                 console.log('[useAgoraVoiceAgent] Using Legacy VoiceAgent flow');
                 startRes = await startAgent({

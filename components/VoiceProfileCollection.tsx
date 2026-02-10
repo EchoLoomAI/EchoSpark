@@ -12,6 +12,7 @@ import {
 import { VoiceVisualizer } from './VoiceVisualizer';
 import { useAgoraVoiceAgent, AgentState } from '../hooks/useAgoraVoiceAgent';
 import { genUserId } from '@/lib/utils';
+import { matchAgent } from '../services/agentService';
 
 interface Props {
   onComplete: (profile: Partial<UserProfile>) => void;
@@ -106,12 +107,104 @@ const VoiceProfileCollection: React.FC<Props> = ({ onComplete }) => {
       例如：$$PROFILE_UPDATE$$ {"key": "nickname", "value": "张大爷"} $$
     `;
 
+    // Try to match a dynamic agent from backend
+    let agentId: string | undefined;
+    let finalSystemPrompt = protocolInstruction;
+    let agentChannel = channelName;
+    let agentAppId: string | undefined;
+    let agentAppCert: string | undefined;
+    let agentProperties: any | undefined;
+
+    try {
+      const agent = await matchAgent({
+        userId: uid.toString(),
+        scenario: 'PROFILING',
+        agentType: 'CONVERSATIONAL',
+        userType: 'free' // Default or fetch from user context
+      });
+
+      if (agent) {
+        agentId = agent.id;
+        agentProperties = agent.config?.properties;
+        console.log('[VoiceProfile] Matched Agent:', agent.name);
+
+        // Extract config for token generation
+        // channel and numericUid corresponds to config object's channel and agent_rtc_uid
+        // but for token generation we use the channel from config and the User's UID (uid)
+        if (agent.config?.properties?.channel) {
+          agentChannel = agent.config.properties.channel;
+        }
+
+        // Extract AppID and AppCert from common
+        if (agent.config?.properties?.common) {
+          agentAppId = agent.config.properties.common.agora_app_id;
+          agentAppCert = agent.config.properties.common.agora_app_certificate;
+        }
+
+        // Extract system prompt from agent config
+        // Assuming structure: agent.config.properties.llm.system_messages[0].content
+        const messages = agent.config?.properties?.llm?.system_messages;
+        if (Array.isArray(messages) && messages.length > 0 && messages[0].content) {
+          const fetchedPrompt = messages[0].content;
+          if (!fetchedPrompt.includes('$$PROFILE_UPDATE$$')) {
+            finalSystemPrompt = `${fetchedPrompt}\n\n${protocolInstruction}`;
+          } else {
+            finalSystemPrompt = fetchedPrompt;
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[VoiceProfile] Failed to match agent, using default fallback', err);
+    }
+
+    // Generate Token using the extracted credentials if available
+    // We need to pass these to startAgoraSession -> useAgoraVoiceAgent -> rtcHelper.retrieveToken
+    // But useAgoraVoiceAgent/rtcHelper might not accept custom appId/cert directly in `options`.
+    // However, rtcHelper.retrieveToken calls `/v1/token`.
+    // We can pass `appId` and `appCertificate` in the `options` object if we modify the hook,
+    // OR we can rely on the fact that `matchAgent` returned the config, so we can manualy call token API here
+    // and pass the token to `startAgoraSession`.
+    // Let's assume `startAgoraSession` can accept a pre-generated token or we modify the hook to accept custom credentials.
+    // Given the constraints, passing `token` to `startAgoraSession` is cleanest if supported.
+    // Checking useAgoraVoiceAgent: startSession(uid, channel, options). Options can have `token`.
+
+    let token: string | undefined;
+    let appId: string | undefined;
+
+    if (agentAppId && agentAppCert) {
+      try {
+        // Manually call BFF token endpoint with custom credentials
+        const res = await fetch(`${import.meta.env.VITE_API_BASE_URL || ''}/v1/token`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            channel: agentChannel,
+            uid: uid,
+            appId: agentAppId,
+            appCertificate: agentAppCert
+          })
+        });
+        const data = await res.json();
+        if (data.code === 0 && data.data?.token) {
+          token = data.data.token;
+          appId = data.data.appId;
+          console.log('[VoiceProfile] Generated custom token using agent config');
+        }
+      } catch (e) {
+        console.error('[VoiceProfile] Failed to generate custom token', e);
+      }
+    }
+
     // Pass scenario='profile' to trigger dynamic matching in the hook
     // Cast to any to bypass strict type check until hook types are updated
-    await startAgoraSession(uid, channelName, {
-      systemPrompt: protocolInstruction,
+    await startAgoraSession(uid, agentChannel, {
+      systemPrompt: finalSystemPrompt,
       // @ts-ignore
-      scenario: 'profile'
+      scenario: 'profile',
+      agentId: agentId,
+      token: token, // Pass pre-generated token if available
+      appId: appId,  // Pass appId if available
+      properties: agentProperties // Pass full properties to hook
     });
   };
 
