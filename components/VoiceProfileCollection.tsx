@@ -125,8 +125,10 @@ const VoiceProfileCollection: React.FC<Props> = ({ onComplete }) => {
 
       if (agent) {
         agentId = agent.id;
-        agentProperties = agent.config?.properties;
+        // Robustly extract properties: try top-level properties first, then config.properties
+        agentProperties = (agent as any).properties || agent.config?.properties;
         console.log('[VoiceProfile] Matched Agent:', agent.name);
+        console.log('[VoiceProfile] Extracted Properties:', agentProperties ? Object.keys(agentProperties) : 'None');
 
         // Extract config for token generation
         // channel and numericUid corresponds to config object's channel and agent_rtc_uid
