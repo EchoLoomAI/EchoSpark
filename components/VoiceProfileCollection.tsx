@@ -176,9 +176,13 @@ const VoiceProfileCollection: React.FC<Props> = ({ onComplete }) => {
     if (agentAppId && agentAppCert) {
       try {
         // Manually call BFF token endpoint with custom credentials
+        const authToken = localStorage.getItem('token');
         const res = await fetch(`${import.meta.env.VITE_API_BASE_URL || ''}/v1/token`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 
+            'Content-Type': 'application/json',
+            ...(authToken ? { 'Authorization': `Bearer ${authToken}` } : {})
+          },
           body: JSON.stringify({
             channel: agentChannel,
             uid: uid,
