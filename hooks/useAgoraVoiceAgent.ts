@@ -98,11 +98,12 @@ export const useAgoraVoiceAgent = ({ onTranscript, onAgentStateChange }: UseAgor
     const startSession = useCallback(async (
         uid: number | string,
         channelName: string,
-        configOrSystemPrompt?: string | { systemPrompt?: string, agentId?: string, scenario?: string, userType?: string, token?: string, appId?: string, properties?: any }
+        configOrSystemPrompt?: string | { systemPrompt?: string, agentId?: string, scenario?: string, userType?: string, token?: string, appId?: string, properties?: any, modelId?: string }
     ) => {
         let systemPrompt: string | undefined;
         let agentId: string | undefined;
         let properties: any | undefined;
+        let configModelId: string | undefined;
 
         if (typeof configOrSystemPrompt === 'string') {
             systemPrompt = configOrSystemPrompt;
@@ -110,6 +111,7 @@ export const useAgoraVoiceAgent = ({ onTranscript, onAgentStateChange }: UseAgor
             systemPrompt = configOrSystemPrompt.systemPrompt;
             agentId = configOrSystemPrompt.agentId;
             properties = configOrSystemPrompt.properties;
+            configModelId = configOrSystemPrompt.modelId;
         }
         const currentAttemptId = Date.now().toString() + Math.random().toString().slice(2);
         attemptIdRef.current = currentAttemptId;
@@ -155,7 +157,7 @@ export const useAgoraVoiceAgent = ({ onTranscript, onAgentStateChange }: UseAgor
             let matchedAgentId: string | undefined = agentId;
             try {
                 const accountUid = String(effectiveUid);
-                
+
                 const configObj = typeof configOrSystemPrompt === 'object' ? configOrSystemPrompt : {};
                 const rawScenario = ((configObj as any).scenario || 'chat').toLowerCase();
                 const userType = (configObj as any).userType || 'free';
@@ -165,7 +167,7 @@ export const useAgoraVoiceAgent = ({ onTranscript, onAgentStateChange }: UseAgor
                 else if (rawScenario.includes('profile') || rawScenario.includes('profiling')) subType = 'PROFILING';
 
                 if (!matchedAgentId) {
-                     const agent = await matchAgent({
+                    const agent = await matchAgent({
                         userId: accountUid,
                         scenario: subType,
                         agentType: 'CONVERSATIONAL',
@@ -399,7 +401,7 @@ export const useAgoraVoiceAgent = ({ onTranscript, onAgentStateChange }: UseAgor
 
             const asrLang = import.meta.env.NEXT_PUBLIC_CUSTOM_ASR_LANG || 'zh-CN';
 
-            let modelId: string | undefined = agentId;
+            let modelId: string | undefined = configModelId || agentId;
             let llmParams: Record<string, any> = {};
             let llmUrl: string | undefined = undefined;
             let llmKey: string | undefined = undefined;
@@ -484,7 +486,7 @@ export const useAgoraVoiceAgent = ({ onTranscript, onAgentStateChange }: UseAgor
                     if (llmKey) {
                         llmPayload.api_key = llmKey;
                     }
-                    
+
                     sessionAgentPayload.llm = llmPayload;
                     sessionAgentPayload.tts = {
                         vendor: ttsVendor,
@@ -535,6 +537,13 @@ export const useAgoraVoiceAgent = ({ onTranscript, onAgentStateChange }: UseAgor
                 // EchoHub: startRes.data?.agent?.agent_id || startRes.data?.agent_id || startRes.agent_id
                 const agentData = startRes.data?.agent || startRes.data || startRes;
                 agentIdRef.current = agentData.agent_id || '';
+
+                // Sync Agent RTC UID from backend response to ensure interrupt/sendText works with the correct target
+                if (agentData.agent_rtc_uid) {
+                    agentUidRef.current = String(agentData.agent_rtc_uid);
+                    console.log('[useAgoraVoiceAgent] Updated agentUidRef to backend UID:', agentUidRef.current);
+                }
+
                 if (agentIdRef.current) startHeartBeat(channelName);
 
                 console.log('[useAgoraVoiceAgent] Agent Started successfully, ID:', agentIdRef.current);

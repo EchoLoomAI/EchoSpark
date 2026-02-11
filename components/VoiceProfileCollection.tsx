@@ -95,7 +95,10 @@ const VoiceProfileCollection: React.FC<Props> = ({ onComplete }) => {
     // Use genUserId() to ensure 100000-999999 range, consistent with VoiceAgent
     const uidStr = localStorage.getItem('uid');
     const uid = uidStr ? Number(uidStr) : genUserId();
-    const channelName = `voice-profile-${uid}`;
+
+    // Ensure channel name is deterministic based on scenario and user ID
+    const scenarioName = 'voice-profile';
+    const channelName = `${scenarioName}-${uid}`;
 
     // Protocol instruction to ensure the agent outputs data in the format frontend expects
     const protocolInstruction = `
@@ -114,6 +117,7 @@ const VoiceProfileCollection: React.FC<Props> = ({ onComplete }) => {
     let agentAppId: string | undefined;
     let agentAppCert: string | undefined;
     let agentProperties: any | undefined;
+    let agentModelId: string | undefined;
 
     try {
       const agent = await matchAgent({
@@ -125,6 +129,7 @@ const VoiceProfileCollection: React.FC<Props> = ({ onComplete }) => {
 
       if (agent) {
         agentId = agent.id;
+        agentModelId = (agent as any).model_id || agent.modelId;
         // Robustly extract properties: try top-level properties first, then config.properties
         agentProperties = (agent as any).properties || agent.config?.properties;
         console.log('[VoiceProfile] Matched Agent:', agent.name);
@@ -179,7 +184,7 @@ const VoiceProfileCollection: React.FC<Props> = ({ onComplete }) => {
         const authToken = localStorage.getItem('token');
         const res = await fetch(`${import.meta.env.VITE_API_BASE_URL || ''}/v1/token`, {
           method: 'POST',
-          headers: { 
+          headers: {
             'Content-Type': 'application/json',
             ...(authToken ? { 'Authorization': `Bearer ${authToken}` } : {})
           },
@@ -210,7 +215,8 @@ const VoiceProfileCollection: React.FC<Props> = ({ onComplete }) => {
       agentId: agentId,
       token: token, // Pass pre-generated token if available
       appId: appId,  // Pass appId if available
-      properties: agentProperties // Pass full properties to hook
+      properties: agentProperties, // Pass full properties to hook
+      modelId: agentModelId // Pass modelId to ensure correct LLM config resolution
     });
   };
 

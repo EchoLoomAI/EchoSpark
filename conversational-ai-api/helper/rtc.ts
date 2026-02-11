@@ -71,7 +71,8 @@ export class RTCHelper extends EventHelper<
     // // eslint-disable-next-line @typescript-eslint/no-explicit-any
     // ;(AgoraRTC as any).setParameter('EXPERIMENTS', { enableChorusMode: true })
 
-    AgoraRTC.enableLogUpload()
+    // AgoraRTC.enableLogUpload()
+    AgoraRTC.disableLogUpload()
     this.client = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' })
   }
 
