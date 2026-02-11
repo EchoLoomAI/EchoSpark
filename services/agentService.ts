@@ -149,7 +149,7 @@ export const getAgentToken = async (
   // Therefore, we force the "Guest/Remote" logic path which uses /api/token.
   const authToken = localStorage.getItem('token');
   const isGuest = !authToken;
-  const forceVoiceAgentBFF = true;
+  const forceVoiceAgentBFF = false;
 
   if (isRemoteToolbox || isGuest || forceVoiceAgentBFF) {
     const appId =

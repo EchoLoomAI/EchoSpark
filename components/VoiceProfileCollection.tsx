@@ -90,11 +90,9 @@ const VoiceProfileCollection: React.FC<Props> = ({ onComplete }) => {
   });
 
   const startSession = async () => {
-    // Generate a random numeric UID for Agora (must be number for Type 1 tokens if backend requires it)
-    // or string if string UID is enabled. AgentService tries to use number if possible.
-    // Use genUserId() to ensure 100000-999999 range, consistent with VoiceAgent
+    // Use stored string UID if available (Standard Mode), otherwise generate random number (Guest Mode)
     const uidStr = localStorage.getItem('uid');
-    const uid = uidStr ? Number(uidStr) : genUserId();
+    const uid = uidStr || genUserId();
 
     // Ensure channel name is deterministic based on scenario and user ID
     const scenarioName = 'voice-profile';
