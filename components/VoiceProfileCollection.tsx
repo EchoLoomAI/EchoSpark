@@ -177,30 +177,34 @@ const VoiceProfileCollection: React.FC<Props> = ({ onComplete }) => {
     let appId: string | undefined;
 
     if (agentAppId && agentAppCert) {
-      try {
-        // Manually call BFF token endpoint with custom credentials
-        const authToken = localStorage.getItem('token');
-        const res = await fetch(`${import.meta.env.VITE_API_BASE_URL || ''}/v1/token`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(authToken ? { 'Authorization': `Bearer ${authToken}` } : {})
-          },
-          body: JSON.stringify({
-            channel: agentChannel,
-            uid: uid,
-            appId: agentAppId,
-            appCertificate: agentAppCert
-          })
-        });
-        const data = await res.json();
-        if (data.code === 0 && data.data?.token) {
-          token = data.data.token;
-          appId = data.data.appId;
-          console.log('[VoiceProfile] Generated custom token using agent config');
+      const authToken = localStorage.getItem('token');
+      if (authToken) {
+        try {
+          // Manually call BFF token endpoint with custom credentials
+          const res = await fetch(`${import.meta.env.VITE_API_BASE_URL || ''}/v1/token`, {
+            method: 'POST',
+            headers: { 
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${authToken}`
+            },
+            body: JSON.stringify({
+              channel: agentChannel,
+              uid: uid,
+              appId: agentAppId,
+              appCertificate: agentAppCert
+            })
+          });
+          const data = await res.json();
+          if (data.code === 0 && data.data?.token) {
+            token = data.data.token;
+            appId = data.data.appId;
+            console.log('[VoiceProfile] Generated custom token using agent config');
+          }
+        } catch (e) {
+          console.error('[VoiceProfile] Failed to generate custom token', e);
         }
-      } catch (e) {
-        console.error('[VoiceProfile] Failed to generate custom token', e);
+      } else {
+        console.warn('[VoiceProfile] No auth token found, skipping custom token generation. Will use default guest flow.');
       }
     }
 
@@ -480,14 +484,14 @@ const VoiceProfileCollection: React.FC<Props> = ({ onComplete }) => {
             )}
 
             {/* Control Bar */}
-            <div className="absolute bottom-8 left-0 right-0 z-30 flex items-center justify-center gap-6 pointer-events-none">
-              <div className="pointer-events-auto flex items-center gap-6">
+            <div className="absolute bottom-8 left-0 right-0 z-30 flex items-center justify-center pointer-events-none px-4">
+              <div className="pointer-events-auto flex items-center justify-center gap-2 sm:gap-6 w-full max-w-lg">
                 {/* Transcript Toggle */}
                 <button
                   onClick={() => setShowTranscript(!showTranscript)}
-                  className={`flex items-center justify-center w-14 h-14 rounded-full transition-all duration-200 ${showTranscript ? 'bg-white text-slate-900' : 'bg-[#1e293b] text-white hover:bg-[#334155]'}`}
+                  className={`flex-shrink-0 flex items-center justify-center w-12 h-12 sm:w-14 sm:h-14 rounded-full transition-all duration-200 ${showTranscript ? 'bg-white text-slate-900' : 'bg-[#1e293b] text-white hover:bg-[#334155]'}`}
                 >
-                  <svg width="24" height="24" viewBox="0 0 34 31" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <svg width="24" height="24" viewBox="0 0 34 31" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-5 h-5 sm:w-6 sm:h-6">
                     <defs>
                       <linearGradient id="subtitle-cn-gradient" x1="0%" y1="0%" x2="0%" y2="100%">
                         <stop offset="0%" stopColor="#00C2FF" />
@@ -500,35 +504,41 @@ const VoiceProfileCollection: React.FC<Props> = ({ onComplete }) => {
                 </button>
 
                 {/* Center Pill: Mic & Visualizer */}
-                <div className="h-16 rounded-full bg-[#1e293b] flex items-center px-2 gap-4 border border-slate-700/50 shadow-lg backdrop-blur-sm">
+                <div className="relative flex-1 min-w-0 h-16 sm:h-20 px-3 sm:px-6 rounded-full bg-slate-900/90 flex items-center justify-between gap-2 sm:gap-6 border border-slate-700/50 shadow-[0_0_20px_rgba(0,0,0,0.3)] backdrop-blur-md overflow-hidden">
+                  {/* Tech Glow Effect */}
+                  <div className="absolute inset-0 bg-gradient-to-r from-blue-500/10 via-purple-500/10 to-blue-500/10 pointer-events-none" />
+                  
                   {/* Mic Toggle */}
                   <button
                     onClick={toggleMute}
-                    className={`flex items-center justify-center w-12 h-12 rounded-full transition-all ${isMuted ? 'text-red-500' : 'text-white hover:text-blue-400'}`}
+                    className={`relative z-10 flex-shrink-0 flex items-center justify-center w-10 h-10 sm:w-12 sm:h-12 rounded-full transition-all duration-300 ${isMuted ? 'bg-red-500/20 text-red-400 shadow-[0_0_15px_rgba(239,68,68,0.3)]' : 'bg-slate-800 text-white hover:bg-slate-700 shadow-inner border border-slate-700'}`}
                   >
-                    {isMuted ? <MicOff className="w-6 h-6" /> : <Mic className="w-6 h-6" />}
+                    {isMuted ? <MicOff className="w-4 h-4 sm:w-5 sm:h-5" /> : <Mic className="w-4 h-4 sm:w-5 sm:h-5" />}
                   </button>
 
                   {/* Visualizer or Interrupt */}
-                  <VoiceVisualizer
-                    state={agentState}
-                    barColor={isMuted ? '#ef4444' : '#3b82f6'}
-                    onInterrupt={interrupt}
-                    getFrequencyBands={getFrequencyBands}
-                  />
+                  <div className="flex-1 h-10 flex items-center justify-center relative z-10 min-w-0 overflow-hidden">
+                    <VoiceVisualizer
+                      state={agentState}
+                      barCount={12}
+                      barColor={isMuted ? '#ef4444' : '#60a5fa'}
+                      onInterrupt={interrupt}
+                      getFrequencyBands={getFrequencyBands}
+                    />
+                  </div>
 
                   {/* Device Switch Chevron */}
-                  <button className="flex items-center justify-center w-10 h-10 rounded-full text-slate-400 hover:text-white transition-colors">
-                    <ChevronUp className="w-6 h-6" />
+                  <button className="relative z-10 flex-shrink-0 flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10 rounded-full text-slate-400 hover:text-white transition-colors hover:bg-white/5">
+                    <ChevronUp className="w-5 h-5 sm:w-6 sm:h-6" />
                   </button>
                 </div>
 
                 {/* End Call */}
                 <button
                   onClick={() => onComplete(formData)}
-                  className="flex items-center justify-center w-14 h-14 rounded-full bg-[#1e293b] text-red-500 hover:bg-[#334155] transition-all duration-200 border border-slate-700/50"
+                  className="flex-shrink-0 flex items-center justify-center w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-[#1e293b] text-red-500 hover:bg-[#334155] transition-all duration-200 border border-slate-700/50"
                 >
-                  <X className="w-8 h-8" />
+                  <X className="w-6 h-6 sm:w-8 sm:h-8" />
                 </button>
               </div>
             </div>

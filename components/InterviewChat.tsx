@@ -1,32 +1,48 @@
 
-import React, { useState, useEffect } from 'react';
-import { useAgoraVoiceAgent } from '../hooks/useAgoraVoiceAgent';
+import React, { useState, useEffect, useRef } from 'react';
+import { Mic, MicOff, X, ChevronUp, User, Globe, Image as ImageIcon } from 'lucide-react';
+import { useAgoraVoiceAgent, AgentState } from '../hooks/useAgoraVoiceAgent';
 import { getAgentConfig } from '../services/agentService';
 import { UserProfile } from '../types';
+import { VoiceVisualizer } from './VoiceVisualizer';
 
 interface Props {
   user: UserProfile;
   onBack: () => void;
 }
 
+interface ChatMessage {
+  id: string;
+  role: 'user' | 'ai';
+  text: string;
+}
+
 const InterviewChat: React.FC<Props> = ({ user, onBack }) => {
-  const [status, setStatus] = useState<'connecting' | 'active' | 'paused' | 'error'>('connecting');
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [showTranscript, setShowTranscript] = useState(false);
+  
+  // State
   const [isMuted, setIsMuted] = useState(false);
-  const [vad, setVad] = useState(50);
-  const [aiTranscript, setAiTranscript] = useState("正在准备访谈提纲...");
-  const [userTranscript, setUserTranscript] = useState("");
   const [contextImage, setContextImage] = useState<string | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [agentState, setAgentState] = useState<AgentState>('idle');
+
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   const {
-    connectionStatus: hookStatus,
+    connectionStatus,
     startSession: startAgentSession,
     stopSession: stopAgentSession,
+    interrupt: interruptAgent,
     setMute: setAgentMute,
+    volumeLevel,
+    localVolumeLevel,
+    getFrequencyBands
   } = useAgoraVoiceAgent({
     onTranscript: (text, role, isFinal) => {
-      if (role === 'user') {
-        setUserTranscript(text);
-      } else {
+      let content = text;
+      
+      if (role === 'assistant') {
         // Parse $$DISPLAY_PHOTO: keyword$$
         const photoMatch = text.match(/\$\$DISPLAY_PHOTO:\s*(.+?)\$\$/);
         if (photoMatch) {
@@ -34,29 +50,40 @@ const InterviewChat: React.FC<Props> = ({ user, onBack }) => {
           console.log("Displaying photo for:", keyword);
           setContextImage(`https://placehold.co/800x600/png?text=${keyword}`);
           // Clean text
-          const cleanText = text.replace(photoMatch[0], '').trim();
-          if (cleanText) setAiTranscript(cleanText);
-        } else {
-          setAiTranscript(text);
+          content = text.replace(photoMatch[0], '').trim();
         }
+      }
+
+      if (isFinal && content) {
+        setMessages(prev => [...prev, { 
+          id: Date.now().toString(), 
+          role: role === 'assistant' ? 'ai' : 'user', 
+          text: content 
+        }]);
       }
     },
     onAgentStateChange: (state) => {
-      if (state === 'connecting') setStatus('connecting');
-      else if (state === 'error') setStatus('error');
-      else if (state === 'idle') setStatus('paused');
-      else setStatus('active');
+      setAgentState(state);
     }
   });
 
   const startSession = async () => {
     try {
-      setStatus('connecting');
+      if (connectionStatus !== 'idle' && connectionStatus !== 'error') return;
+      
+      setErrorMsg(null);
 
-      const config = await getAgentConfig('interview', 'interview');
+      // 调用 getAgentConfig，传入场景 'INTERVIEW'，agentType 'CONVERSATIONAL'
+      // 同时传入 userType 'INTERVIEW_USER'（示例），与 CasualChat 保持一致的模式
+      let config = await getAgentConfig('CONVERSATIONAL', 'INTERVIEW', 'INTERVIEW_USER');
+      
       if (!config) {
-        setStatus('error');
-        setAiTranscript("未找到访谈智能体配置");
+        // 降级查找
+        config = await getAgentConfig('CONVERSATIONAL', 'INTERVIEW');
+      }
+
+      if (!config) {
+        setErrorMsg("未找到访谈智能体配置");
         return;
       }
 
@@ -72,9 +99,6 @@ const InterviewChat: React.FC<Props> = ({ user, onBack }) => {
       const uid = Math.floor(Math.random() * 100000) + 100000;
       const channelName = `interview_${uid}_${Date.now()}`;
 
-      // Inject user context. 
-      // Note: This appends to or overrides the agent's system prompt depending on backend implementation.
-      // We send it to ensure the agent knows the user.
       const prompt = `
         当前采访对象资料：
         ${userContext}
@@ -89,168 +113,254 @@ const InterviewChat: React.FC<Props> = ({ user, onBack }) => {
 
     } catch (err) {
       console.error(err);
-      setStatus('error');
-      setAiTranscript("初始化失败");
+      setErrorMsg("初始化失败");
     }
   };
 
-  const togglePause = () => {
-    if (status === 'active') {
-      // Logic to pause (mute or stop)
-      // Since useAgoraVoiceAgent doesn't have a 'pause' method that keeps session alive but stops processing,
-      // we can just mute for now or stop session. 
-      // The original implementation stopped audio sources but kept session open? 
-      // Actually original toggled 'paused' state which blocked audio processing.
-      // We can just mute the mic.
-      setAgentMute(true);
-      setStatus('paused');
-    } else if (status === 'paused') {
-      setAgentMute(false);
-      setStatus('active');
-    }
-  };
-
-  const handleEndInterview = () => {
+  const stopSession = () => {
     stopAgentSession();
+  };
+
+  const handleHangup = () => {
+    stopSession();
     onBack();
   };
 
-  useEffect(() => {
-    startSession();
-    return () => {
-      stopAgentSession();
-    };
-  }, []);
-
-  // Sync mute state
-  const handleToggleMute = () => {
+  const toggleMute = () => {
     const newMute = !isMuted;
     setIsMuted(newMute);
     setAgentMute(newMute);
   };
 
+  const interrupt = async () => {
+    await interruptAgent();
+  };
+
+  useEffect(() => {
+    startSession();
+    return () => {
+      stopSession();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [messages]);
+
+  const getStatusText = () => {
+    if (connectionStatus === 'connecting') return '连接中...';
+    if (connectionStatus === 'error') return '连接失败';
+    
+    switch (agentState) {
+      case 'listening': return '我在听...';
+      case 'thinking': return '回忆中...';
+      case 'speaking': return '访谈中...';
+      default: return '准备就绪';
+    }
+  };
+
   return (
-    <div className="h-full flex flex-col bg-background-dark text-white relative overflow-hidden font-sans">
-      {/* Background Ambience */}
-      <div className="absolute inset-0 bg-gradient-to-b from-slate-900 to-black pointer-events-none"></div>
-      <div className={`absolute top-0 left-0 w-full h-full bg-[url('https://www.transparenttextures.com/patterns/stardust.png')] opacity-20 pointer-events-none`}></div>
+    <div className="h-full flex flex-col bg-slate-950 text-white relative overflow-hidden font-sans">
+      {/* Background Gradient */}
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-slate-900 via-slate-950 to-black z-0 pointer-events-none" />
 
-      {/* Header */}
-      <header className="px-6 pt-8 pb-4 flex justify-between items-center z-20">
-        <div className="flex items-center gap-2">
-          <div className={`w-2 h-2 rounded-full ${status === 'active' ? 'bg-red-500 animate-pulse' : status === 'paused' ? 'bg-yellow-500' : 'bg-slate-500'}`}></div>
-          <span className="text-xs font-bold uppercase tracking-widest text-slate-400">
-            {status === 'active' ? '录制中' : status === 'paused' ? '已暂停' : '离线'}
-          </span>
+      {/* Styles for Animations */}
+      <style>{`
+        @keyframes blob {
+          0% { transform: translate(0px, 0px) scale(1); }
+          33% { transform: translate(30px, -50px) scale(1.1); }
+          66% { transform: translate(-20px, 20px) scale(0.9); }
+          100% { transform: translate(0px, 0px) scale(1); }
+        }
+        @keyframes morph {
+          0% { border-radius: 60% 40% 30% 70% / 60% 30% 70% 40%; }
+          50% { border-radius: 30% 60% 70% 40% / 50% 60% 30% 60%; }
+          100% { border-radius: 60% 40% 30% 70% / 60% 30% 70% 40%; }
+        }
+        .animate-blob {
+          animation: blob 7s infinite;
+        }
+        .animate-morph {
+          animation: morph 8s ease-in-out infinite;
+        }
+        .animation-delay-2000 {
+          animation-delay: 2s;
+        }
+        .animation-delay-4000 {
+          animation-delay: 4s;
+        }
+      `}</style>
+
+      {/* Main Content */}
+      <main className="flex-1 flex flex-col items-center justify-center relative w-full h-full overflow-hidden z-10">
+        {/* Title */}
+        <div className="ag-custom-gradient-title font-semibold text-2xl text-transparent leading-none md:mt-12 md:text-[40px] fade-in animate-in flex items-center justify-center gap-2 transition-[height,opacity] duration-500 bg-clip-text bg-gradient-to-r from-amber-200 via-orange-300 to-rose-300 h-20 min-h-20 opacity-100 z-10">
+          <span>{getStatusText()}</span>
         </div>
-        {/* Top right is now empty or can hold a small logo/indicator */}
-        <div className="text-xs text-slate-600 font-mono opacity-50">MEMO-REC-001</div>
-      </header>
 
-      {/* Main Content Area */}
-      <main className="flex-1 flex flex-col items-center justify-center px-6 relative z-10 gap-8">
+        {/* Center Visual: Orb OR Image */}
+        <div className="flex-1 flex items-center justify-center w-full transition-opacity duration-500">
+          {contextImage ? (
+            <div className="relative w-80 h-60 md:w-[600px] md:h-[450px] animate-in zoom-in duration-700 flex items-center justify-center">
+               <div className="absolute inset-0 bg-gradient-to-tr from-amber-500/20 to-purple-500/20 rounded-2xl blur-xl"></div>
+               <img 
+                 src={contextImage} 
+                 alt="Context Memory" 
+                 className="relative w-full h-full object-cover rounded-2xl border-2 border-white/10 shadow-2xl z-10"
+               />
+               <div className="absolute bottom-4 left-4 z-20 flex items-center gap-2 bg-black/60 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/10">
+                 <ImageIcon className="w-4 h-4 text-amber-300" />
+                 <span className="text-xs text-amber-100 font-medium">AI 联想记忆</span>
+               </div>
+               {/* Overlay Visualizer when image is present */}
+               <div className="absolute -bottom-16 left-0 right-0 h-12 flex items-center justify-center">
+                  <VoiceVisualizer
+                    state={agentState}
+                    barCount={20}
+                    barColor="#fbbf24" 
+                    volume={(agentState === 'speaking' ? volumeLevel : localVolumeLevel) / 100}
+                    getFrequencyBands={getFrequencyBands}
+                    onInterrupt={interrupt}
+                  />
+               </div>
+            </div>
+          ) : (
+            <div className="relative w-72 h-72 flex items-center justify-center mb-12">
+              <div className={`relative w-full h-full transition-all duration-500 ${agentState === 'speaking' ? 'scale-110' :
+                agentState === 'listening' ? 'scale-105' :
+                  'scale-100'
+                }`}>
+                {/* Background Glow Blobs - Warmer tones for Interview */}
+                <div className="absolute top-0 -left-4 w-60 h-60 bg-amber-600 rounded-full mix-blend-screen filter blur-[50px] opacity-30 animate-blob"></div>
+                <div className="absolute top-0 -right-4 w-60 h-60 bg-rose-600 rounded-full mix-blend-screen filter blur-[50px] opacity-30 animate-blob animation-delay-2000"></div>
+                <div className="absolute -bottom-8 left-10 w-60 h-60 bg-orange-600 rounded-full mix-blend-screen filter blur-[50px] opacity-30 animate-blob animation-delay-4000"></div>
 
-        {/* Dynamic Context Image (From AI Knowledge Base) */}
-        {contextImage ? (
-          <div className="relative w-full max-w-xs aspect-[4/3] bg-black rounded-2xl border-2 border-white/20 overflow-hidden shadow-2xl animate-in zoom-in duration-700">
-            <img src={contextImage} alt="Memory Context" className="w-full h-full object-cover opacity-90" />
-            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent"></div>
-            <div className="absolute bottom-3 left-3 flex items-center gap-2">
-              <span className="material-symbols-outlined text-white text-sm">auto_awesome</span>
-              <span className="text-xs text-white/90 font-medium tracking-wide">AI 联想记忆</span>
+                {/* Main Morphing Orb */}
+                <div className="absolute inset-0 m-auto w-56 h-56 flex items-center justify-center">
+                  {/* Core */}
+                  <div className={`w-full h-full bg-gradient-to-br from-amber-100 via-orange-200 to-rose-200 animate-morph shadow-[0_0_50px_rgba(255,200,100,0.3)] transition-all duration-500 ${agentState === 'speaking' ? 'scale-110 opacity-100' :
+                    agentState === 'thinking' ? 'scale-90 opacity-90 animate-pulse' :
+                      agentState === 'listening' ? 'scale-105 opacity-100' :
+                        'scale-95 opacity-80'
+                    }`}></div>
+
+                  {/* Visualizer Overlay */}
+                  <div className="absolute inset-0 flex items-center justify-center z-10">
+                    <VoiceVisualizer
+                      state={agentState}
+                      barCount={6}
+                      barColor="#d97706"
+                      volume={(agentState === 'speaking' ? volumeLevel : localVolumeLevel) / 100}
+                      getFrequencyBands={getFrequencyBands}
+                    />
+                  </div>
+
+                  {/* Inner Rings/Detail */}
+                  <div className="absolute inset-0 w-full h-full animate-morph border-2 border-white/50 opacity-50 scale-90 pointer-events-none"></div>
+                  <div className="absolute inset-0 w-full h-full animate-morph border border-white/30 opacity-30 scale-110 animation-delay-2000 pointer-events-none"></div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Status Text (Error Only) */}
+        <div className="text-center space-y-2 z-10 mb-24 absolute top-24 left-0 right-0 pointer-events-none">
+          {errorMsg && (
+            <div className="space-y-3 bg-red-500/90 p-4 rounded-xl backdrop-blur-md pointer-events-auto inline-block text-white shadow-lg">
+               {errorMsg}
+               <button onClick={startSession} className="block mt-2 text-xs underline">重试</button>
+            </div>
+          )}
+        </div>
+
+        {/* Transcript Overlay */}
+        {showTranscript && (
+          <div className="backdrop-blur-lg absolute top-0 right-0 bottom-24 left-0 h-full w-full bg-slate-950/80 z-20 animate-in fade-in">
+            <div className="relative overflow-hidden h-full w-full rounded-md p-4">
+              <div ref={scrollRef} className="h-full w-full overflow-y-auto scrollbar-hide space-y-4 px-4 pb-24">
+                {messages.map((msg) => (
+                  <div key={msg.id} className={`w-full flex flex-col gap-2 ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
+                    <div className="flex items-center gap-2">
+                      {msg.role === 'user' ? (
+                        <>
+                          <span className="text-slate-400 text-sm">你</span>
+                          <User className="w-5 h-5 text-amber-400" />
+                        </>
+                      ) : (
+                        <>
+                          <Globe className="w-5 h-5 text-rose-400" />
+                          <span className="text-slate-400 text-sm">访谈助手</span>
+                        </>
+                      )}
+                    </div>
+                    <div className={`rounded-md py-2 px-4 max-w-[80%] ${msg.role === 'user' ? 'bg-slate-800 text-white' : 'bg-slate-900 text-slate-200'}`}>
+                      {msg.text}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
-        ) : (
-          <div className="relative w-full max-w-xs aspect-[4/3] bg-white/5 rounded-2xl border border-white/10 flex flex-col items-center justify-center text-slate-500 gap-2">
-            <span className="material-symbols-outlined text-4xl opacity-50">photo_library</span>
-            <span className="text-xs">提及回忆场景自动展示照片</span>
-          </div>
         )}
-
-        {/* AI Transcription (The Interviewer) */}
-        <div className="w-full max-w-sm text-center space-y-4">
-          <p className="text-primary text-xs font-black uppercase tracking-[0.2em] mb-2">访谈提纲 / AI 提问</p>
-          <h2 className="text-2xl md:text-3xl font-serif font-medium leading-relaxed text-slate-100 min-h-[100px] drop-shadow-lg">
-            “{aiTranscript}”
-          </h2>
-        </div>
-
-        {/* User Transcription (The Narrator) */}
-        <div className={`w-full max-w-sm text-center transition-opacity duration-500 ${userTranscript ? 'opacity-100' : 'opacity-0'}`}>
-          <div className="inline-block bg-white/10 backdrop-blur-md px-6 py-4 rounded-3xl border border-white/5 shadow-inner">
-            <p className="text-slate-300 text-lg font-light leading-relaxed">
-              {userTranscript}
-            </p>
-          </div>
-        </div>
-
       </main>
 
-      {/* Footer Controls */}
-      <footer className="px-6 pb-12 pt-6 z-20">
-        {/* Visualizer (Simple) */}
-        <div className="flex justify-center gap-1 h-8 mb-8">
-          {[...Array(5)].map((_, i) => (
-            <div key={i} className={`w-1.5 bg-primary/50 rounded-full ${status === 'active' && !isMuted ? 'animate-pulse' : ''}`} style={{ height: '100%', animationDelay: `${i * 0.1}s` }}></div>
-          ))}
-        </div>
+      {/* Control Bar */}
+      <div className="absolute bottom-8 left-0 right-0 z-30 flex items-center justify-center pointer-events-none px-4">
+        <div className="pointer-events-auto flex items-center justify-center gap-2 sm:gap-6 w-full max-w-lg">
+          {/* Transcript Toggle */}
+          <button
+            onClick={() => setShowTranscript(!showTranscript)}
+            className={`flex-shrink-0 flex items-center justify-center w-12 h-12 sm:w-14 sm:h-14 rounded-full transition-all duration-200 ${showTranscript ? 'bg-white text-slate-900' : 'bg-[#1e293b] text-white hover:bg-[#334155]'}`}
+          >
+            <svg width="24" height="24" viewBox="0 0 34 31" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-5 h-5 sm:w-6 sm:h-6">
+              <path fillRule="evenodd" clipRule="evenodd" d="M6.66667 0C2.98477 0 0 2.98477 0 6.66667V18.3333C0 22.0152 2.98477 25 6.66667 25H9.5C9.9479 25 10.2796 25.4163 10.1795 25.8529L9 31L18.3722 25.4461C18.865 25.1541 19.4272 25 20 25H27.3333C31.0152 25 34 22.0152 34 18.3333V6.66667C34 2.98477 31.0152 0 27.3333 0H6.66667ZM4.15376 6.93202V9.85046H5.79454V11.3837H11.3356C10.9455 11.8544 10.5286 12.3251 10.0982 12.7958H4.00582V14.4904H9.70822V16.8036H7.67741V18.5117H11.4835V14.4904H16.1234V12.7958H12.1963C12.9763 11.8678 13.7026 10.886 14.3347 9.85046H15.962V6.93202H10.9455V6.13852H9.17025V6.93202H4.15376ZM14.2136 9.74287H5.90213V8.5997H14.2136V9.74287ZM20.2119 8.69384H18.4367V12.5941H22.6328V13.0917H17.4011V14.5845H18.9074C18.5173 15.1225 17.9794 15.5125 17.2531 15.7949V17.4895C18.0466 17.2071 18.7056 16.844 19.257 16.4002V18.3503H20.9516V16.8978H22.6462V18.5789H24.3677V16.8978H26.0623V18.3503H27.7568V16.4002C28.3083 16.844 28.9673 17.2071 29.7608 17.4895V15.7949C29.0345 15.5125 28.4965 15.1225 28.1065 14.5845H29.6128V13.0917H24.3811V12.5941H28.5772V8.69384H26.802V8.18278H29.3573V6.73028H26.802V6.24612H25.0536V6.73028H21.9603V6.24612H20.2119V6.73028H17.6566V8.18278H20.2119V8.69384ZM22.6462 15.4856H20.1312C20.333 15.2032 20.5078 14.9073 20.6557 14.5845H26.3581C26.5061 14.9073 26.6809 15.2032 26.8827 15.4856H24.3677V14.7863H22.6462V15.4856ZM26.8289 11.5181H20.185V11.1281H26.8289V11.5181ZM26.8289 10.1463H20.185V9.74287H26.8289V10.1463ZM25.0536 8.69384H21.9603V8.18278H25.0536V8.69384Z" fill="currentColor" />
+            </svg>
+          </button>
 
-        <div className="flex items-center justify-between max-w-xs mx-auto">
-          {/* Left: Microphone / Mute */}
-          <div className="flex flex-col items-center gap-2">
+          {/* Center Pill: Mic & Visualizer */}
+          <div className="relative flex-1 min-w-0 h-16 sm:h-20 px-3 sm:px-6 rounded-full bg-slate-900/90 flex items-center justify-between gap-2 sm:gap-6 border border-slate-700/50 shadow-[0_0_20px_rgba(0,0,0,0.3)] backdrop-blur-md overflow-hidden">
+            {/* Tech Glow Effect */}
+            <div className="absolute inset-0 bg-gradient-to-r from-amber-500/10 via-rose-500/10 to-amber-500/10 pointer-events-none" />
+            
+            {/* Mic Toggle */}
             <button
-              onClick={handleToggleMute}
-              className={`w-14 h-14 rounded-full flex items-center justify-center border transition-all ${!isMuted ? 'bg-white/10 border-white/20 text-white' : 'bg-red-500/20 border-red-500/50 text-red-400'}`}
+              onClick={toggleMute}
+              className={`relative z-10 flex-shrink-0 flex items-center justify-center w-10 h-10 sm:w-12 sm:h-12 rounded-full transition-all duration-300 ${isMuted ? 'bg-red-500/20 text-red-400 shadow-[0_0_15px_rgba(239,68,68,0.3)]' : 'bg-slate-800 text-white hover:bg-slate-700 shadow-inner border border-slate-700'}`}
             >
-              <span className="material-symbols-outlined text-2xl">
-                {isMuted ? 'mic_off' : 'mic'}
-              </span>
+              {isMuted ? <MicOff className="w-4 h-4 sm:w-5 sm:h-5" /> : <Mic className="w-4 h-4 sm:w-5 sm:h-5" />}
             </button>
-            <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">
-              {isMuted ? '已静音' : '麦克风'}
-            </span>
+
+            {/* Visualizer or Interrupt */}
+            <div className="flex-1 h-10 flex items-center justify-center relative z-10 min-w-0 overflow-hidden">
+              <VoiceVisualizer
+                state={agentState}
+                barCount={12}
+                barColor={isMuted ? '#ef4444' : '#fbbf24'}
+                onInterrupt={interrupt}
+                getFrequencyBands={getFrequencyBands}
+              />
+            </div>
+
+            {/* Device Switch Chevron (Placeholder for now) */}
+            <button className="relative z-10 flex-shrink-0 flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10 rounded-full text-slate-400 hover:text-white transition-colors hover:bg-white/5">
+              <ChevronUp className="w-5 h-5 sm:w-6 sm:h-6" />
+            </button>
           </div>
 
-          {/* Center: Main Pause/Resume Toggle */}
-          <div className="flex flex-col items-center gap-2 -mt-8">
-            <button
-              onClick={togglePause}
-              className={`w-20 h-20 rounded-full flex items-center justify-center shadow-2xl transition-all border-4 active:scale-95 ${status === 'active'
-                ? 'bg-primary border-primary/30 shadow-primary/40 text-white'
-                : 'bg-yellow-500 border-yellow-500/30 shadow-yellow-500/40 text-black'
-                }`}
-            >
-              <span className="material-symbols-outlined text-4xl font-bold">
-                {status === 'active' ? 'pause' : 'play_arrow'}
-              </span>
-            </button>
-            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
-              {status === 'active' ? '点击暂停' : '继续访谈'}
-            </span>
-          </div>
-
-          {/* Right: End Interview (Previously Upload) */}
-          <div className="flex flex-col items-center gap-2">
-            <button
-              onClick={handleEndInterview}
-              className="w-14 h-14 rounded-full bg-red-500 flex items-center justify-center text-white border border-red-400 shadow-lg shadow-red-900/50 active:scale-90 transition-all"
-            >
-              <span className="material-symbols-outlined text-2xl">stop</span>
-            </button>
-            <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">结束</span>
-          </div>
+          {/* End Call */}
+          <button
+            onClick={handleHangup}
+            className="flex-shrink-0 flex items-center justify-center w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-[#1e293b] text-red-500 hover:bg-[#334155] transition-all duration-200 border border-slate-700/50"
+          >
+            <X className="w-6 h-6 sm:w-8 sm:h-8" />
+          </button>
         </div>
-        <div className="max-w-xs mx-auto mt-6">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs text-slate-400">VAD 灵敏度</span>
-            <span className="text-xs text-slate-200">{vad}</span>
-          </div>
-          <input type="range" min={0} max={100} value={vad} onChange={(e) => setVad(Number(e.target.value))} className="w-full" />
-        </div>
-      </footer>
+      </div>
     </div>
   );
 };
 
-// Audio Utils (Removed)
 export default InterviewChat;

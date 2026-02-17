@@ -5,6 +5,7 @@ import SplashPage from './components/SplashPage';
 import OnboardingStep1 from './components/OnboardingStep1';
 import OnboardingStep2 from './components/OnboardingStep2';
 import OnboardingStep3 from './components/OnboardingStep3';
+import OnboardingStep4 from './components/OnboardingStep4';
 import LoginPage from './components/LoginPage';
 import VoiceProfileCollection from './components/VoiceProfileCollection';
 import Dashboard from './components/Dashboard';
@@ -35,6 +36,9 @@ const App: React.FC = () => {
         setCurrentStep(AppStep.ONBOARDING_3);
         break;
       case AppStep.ONBOARDING_3:
+        setCurrentStep(AppStep.ONBOARDING_4);
+        break;
+      case AppStep.ONBOARDING_4:
         setCurrentStep(AppStep.LOGIN);
         break;
       default:
@@ -50,8 +54,11 @@ const App: React.FC = () => {
       case AppStep.ONBOARDING_3:
         setCurrentStep(AppStep.ONBOARDING_2);
         break;
-      case AppStep.LOGIN:
+      case AppStep.ONBOARDING_4:
         setCurrentStep(AppStep.ONBOARDING_3);
+        break;
+      case AppStep.LOGIN:
+        setCurrentStep(AppStep.ONBOARDING_4);
         break;
       case AppStep.ONBOARDING_VOICE:
         setCurrentStep(AppStep.LOGIN);
@@ -123,30 +130,15 @@ const App: React.FC = () => {
     setCurrentStep(AppStep.LOGIN);
   };
 
-  // 调试用的强制跳转函数
-  const debugNextStep = () => {
-    const steps = Object.values(AppStep);
-    const currentIndex = steps.indexOf(currentStep);
-    const nextIndex = (currentIndex + 1) % steps.length;
-    setCurrentStep(steps[nextIndex] as AppStep);
-  };
+  // 调试用的强制跳转函数 (已移除)
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-slate-200 relative">
-      <button
-        onClick={debugNextStep}
-        className="fixed bottom-8 right-8 z-50 bg-slate-800/80 hover:bg-slate-900 text-white px-4 py-3 rounded-full shadow-lg backdrop-blur-md font-mono text-xs flex items-center gap-2 transition-all border border-white/10"
-        title="跳到下一步 (Debug)"
-      >
-        <span className="material-symbols-outlined text-[16px]">bug_report</span>
-        <span>Skip: {currentStep}</span>
-      </button>
-
-      <div className="w-full h-full max-w-md bg-white shadow-2xl overflow-hidden relative" style={{ height: '932px', maxHeight: '100vh' }}>
-        {currentStep === AppStep.SPLASH && <SplashPage />}
+    <div className="w-full h-[100dvh] bg-white overflow-hidden relative">
+      {currentStep === AppStep.SPLASH && <SplashPage />}
         {currentStep === AppStep.ONBOARDING_1 && <OnboardingStep1 onNext={handleNext} />}
         {currentStep === AppStep.ONBOARDING_2 && <OnboardingStep2 onNext={handleNext} onBack={handleBack} />}
         {currentStep === AppStep.ONBOARDING_3 && <OnboardingStep3 onNext={handleNext} onBack={handleBack} />}
+        {currentStep === AppStep.ONBOARDING_4 && <OnboardingStep4 onNext={handleNext} onBack={handleBack} />}
         {currentStep === AppStep.LOGIN && <LoginPage onBack={handleBack} onLoginSuccess={handleLoginSuccess} />}
         {currentStep === AppStep.ONBOARDING_VOICE && (
           <VoiceProfileCollection onComplete={handleProfileComplete} />
@@ -167,9 +159,8 @@ const App: React.FC = () => {
           <FamilyGallery onBack={handleBack} />
         )}
         {currentStep === AppStep.USER_MENU && (
-          <UserMenu user={user} onBack={handleBack} onLogout={handleLogout} />
-        )}
-      </div>
+        <UserMenu user={user} onBack={handleBack} onLogout={handleLogout} />
+      )}
     </div>
   );
 };

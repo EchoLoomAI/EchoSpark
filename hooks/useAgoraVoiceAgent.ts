@@ -242,7 +242,7 @@ export const useAgoraVoiceAgent = ({ onTranscript, onAgentStateChange }: UseAgor
             if (attemptIdRef.current !== currentAttemptId) {
                 console.warn('[useAgoraVoiceAgent] Session aborted after RTM login');
                 // Cleanup RTM if we aborted right after login
-                await rtmHelper.logout();
+                await rtmHelper.exitAndCleanup();
                 return;
             }
 
@@ -286,11 +286,28 @@ export const useAgoraVoiceAgent = ({ onTranscript, onAgentStateChange }: UseAgor
                     // Map generic states if necessary, or pass through
                     // Assuming event.state matches AgentState or similar
                     // event.state could be 'listening', 'speaking', 'thinking'
-                    const state = event.state as AgentState;
+                    // Normalize to lower case just in case
+                    const rawState = String(event.state).toLowerCase();
+                    const state = rawState as AgentState;
                     setConnectionStatus(state);
                     onAgentStateChange?.(state);
                 }
             );
+
+            // Listen for volume indicators
+            rtcHelper.client.enableAudioVolumeIndicator();
+            rtcHelper.client.on("volume-indicator", (volumes) => {
+                volumes.forEach((vol) => {
+                    // Local user
+                    if (vol.uid === finalUid || vol.uid === 0) {
+                        setLocalVolumeLevel(Math.min(100, Math.round(vol.level)));
+                    } 
+                    // Remote agent (approximate check)
+                    else {
+                        setVolumeLevel(Math.min(100, Math.round(vol.level)));
+                    }
+                });
+            });
 
             // Listen for internal debug logs from ConversationalAIAPI
             conversationalAIAPI.on(
@@ -322,10 +339,10 @@ export const useAgoraVoiceAgent = ({ onTranscript, onAgentStateChange }: UseAgor
             // Subscribe to connection state changes
             rtcHelper.client.on('connection-state-change', (curState, revState, reason) => {
                 console.log(`[useAgoraVoiceAgent] Connection State Changed: ${revState} -> ${curState}, Reason: ${reason}`);
-                if (curState === 'FAILED') {
+                if (curState === 'DISCONNECTED' && reason !== 'LEAVE') {
                     setConnectionStatus('error');
                     onAgentStateChange?.('error');
-                    toast.error(`语音连接失败: ${reason}`);
+                    toast.error(`语音连接中断: ${reason}`);
                 }
             });
 
@@ -353,7 +370,7 @@ export const useAgoraVoiceAgent = ({ onTranscript, onAgentStateChange }: UseAgor
             if (attemptIdRef.current !== currentAttemptId) {
                 console.warn('[useAgoraVoiceAgent] Session aborted before RTC join');
                 // Cleanup potential partial setups
-                await rtmHelper.logout();
+                await rtmHelper.exitAndCleanup();
                 return;
             }
 

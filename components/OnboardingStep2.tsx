@@ -1,76 +1,154 @@
 
-import React from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 
 interface Props {
   onNext: () => void;
   onBack: () => void;
 }
 
-const OnboardingStep2: React.FC<Props> = ({ onNext, onBack }) => {
-  return (
-    <div className="h-full flex flex-col bg-background-light p-6 pb-12 relative overflow-hidden">
-      {/* 装饰圆环 */}
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[150%] aspect-square border border-primary/10 rounded-full pointer-events-none"></div>
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[110%] aspect-square border border-primary/5 rounded-full pointer-events-none"></div>
+const dialects = [
+  { id: 'sc', name: '四川话', region: '西南', color: '#FF9F43', char: '川' },
+  { id: 'gd', name: '粤语', region: '华南', color: '#EE5253', char: '粤' },
+  { id: 'sh', name: '上海话', region: '华东', color: '#54A0FF', char: '沪' },
+  { id: 'bj', name: '北京话', region: '华北', color: '#1DD1A1', char: '京' },
+  { id: 'db', name: '东北话', region: '东北', color: '#9333EA', char: '整' },
+  { id: 'sx', name: '陕西话', region: '西北', color: '#F97316', char: '秦' },
+];
 
-      <header className="flex justify-between items-center pt-8">
-        <button 
+const OnboardingStep2: React.FC<Props> = ({ onNext, onBack }) => {
+  const [activeDialect, setActiveDialect] = useState<string | null>(null);
+  const [isPlaying, setIsPlaying] = useState<string | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  // Clean up audio on unmount
+  useEffect(() => {
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
+    };
+  }, []);
+
+  const handlePlay = (id: string) => {
+    if (isPlaying === id) {
+      // Stop playing
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
+      setIsPlaying(null);
+    } else {
+      // Stop previous
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
+      
+      setIsPlaying(id);
+      
+      // Try playing from public folder
+      const audio = new Audio(`/audio/dialects/${id}.mp3`);
+      audioRef.current = audio;
+
+      audio.onended = () => {
+        setIsPlaying(null);
+        audioRef.current = null;
+      };
+
+      audio.onerror = () => {
+        console.warn(`Audio file not found: /audio/dialects/${id}.mp3. Using mock duration.`);
+        // Fallback to mock behavior if file not found
+        setTimeout(() => {
+            setIsPlaying(current => current === id ? null : current);
+        }, 3000);
+      };
+
+      audio.play().catch(err => {
+        console.log('Audio playback failed or file missing, using mock.', err);
+         setTimeout(() => {
+            setIsPlaying(current => current === id ? null : current);
+        }, 3000);
+      });
+    }
+  };
+
+  return (
+    <div className="h-full flex flex-col justify-between bg-[#F0F8FF] p-6 pb-8 relative">
+      {/* Top Bar */}
+      <header className="flex justify-between items-center pt-4">
+        <button
           onClick={onBack}
-          className="w-10 h-10 rounded-full bg-white flex items-center justify-center text-slate-600 shadow-sm border border-slate-100 active:scale-90 transition-transform"
+          className="text-[#54A0FF] text-lg font-bold flex items-center gap-1"
         >
-          <span className="material-symbols-outlined text-[20px]">arrow_back_ios_new</span>
+          <span className="material-symbols-outlined text-2xl">arrow_back</span>
+          <span>返回</span>
         </button>
-        <div className="flex items-center gap-2">
-           <div className="w-2 h-2 rounded-full bg-primary/20"></div>
-           <div className="w-8 h-2 rounded-full bg-primary"></div>
-           <div className="w-2 h-2 rounded-full bg-primary/20"></div>
-        </div>
       </header>
 
-      <main className="flex-1 flex flex-col items-center mt-8">
-        <div className="text-center z-10 mb-12">
-          <h1 className="text-[36px] font-black text-slate-900 tracking-tight mb-2">支持多种方言</h1>
-          <p className="text-slate-500 text-xl leading-relaxed">
-            无需担心口音问题，<br/>回声灵犀听得懂您的乡音
-          </p>
+      <main className="flex-1 flex flex-col mt-4 px-2 overflow-hidden min-h-0">
+        <h1 className="text-[28px] font-black text-[#2D3436] text-center leading-tight mb-4 shrink-0">
+          家乡话<br />倍感亲切
+        </h1>
+
+
+
+        {/* Dialect Selection Grid */}
+        <div className="grid grid-cols-2 gap-3 flex-1 min-h-0 content-start">
+          {dialects.map((dialect) => (
+            <div
+              key={dialect.id}
+              onClick={() => setActiveDialect(dialect.id)}
+              className={`relative flex flex-col items-center justify-center p-3 rounded-2xl border-2 transition-all cursor-pointer ${activeDialect === dialect.id
+                ? 'bg-white border-[#54A0FF] shadow-md scale-[1.02]'
+                : 'bg-white/60 border-transparent hover:bg-white/80'
+                }`}
+            >
+              <div className={`w-14 h-14 rounded-full flex items-center justify-center text-white font-bold text-2xl shadow-sm mb-2`} style={{ backgroundColor: dialect.color }}>
+                {dialect.char}
+              </div>
+
+              <div className="text-lg font-bold text-[#2D3436] mb-1">{dialect.name}</div>
+
+              <button
+                onClick={(e) => { e.stopPropagation(); handlePlay(dialect.id); }}
+                className={`flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold transition-colors ${isPlaying === dialect.id ? 'bg-[#54A0FF] text-white' : 'bg-gray-100 text-[#54A0FF]'
+                  }`}
+              >
+                <span className="material-symbols-outlined text-sm">
+                  {isPlaying === dialect.id ? 'pause' : 'volume_up'}
+                </span>
+                <span>试听</span>
+              </button>
+
+              {/* Selection Checkmark */}
+              {activeDialect === dialect.id && (
+                <div className="absolute top-2 right-2 text-[#54A0FF]">
+                  <span className="material-symbols-outlined text-xl">check_circle</span>
+                </div>
+              )}
+            </div>
+          ))}
         </div>
 
-        <div className="flex-1 w-full relative flex items-center justify-center">
-          {/* 浮动方言标签 */}
-          <div className="absolute top-[-10px] left-1/2 -translate-x-1/2 z-20 animate-float">
-            <div className="bg-primary text-white px-8 py-3 rounded-full shadow-lg flex items-center gap-2 rotate-[-3deg]">
-              <span className="text-xl font-bold">普通话</span>
-              <span className="material-symbols-outlined text-[20px]">record_voice_over</span>
-            </div>
-          </div>
-
-          <div className="absolute bottom-[20%] left-4 animate-float" style={{ animationDelay: '1s' }}>
-            <div className="bg-white px-6 py-4 rounded-2xl rounded-tr-none shadow-md border border-primary/5 rotate-[5deg]">
-              <span className="text-xl font-bold text-primary">粤语</span>
-            </div>
-          </div>
-
-          <div className="absolute bottom-[20%] right-4 animate-float" style={{ animationDelay: '2s' }}>
-            <div className="bg-white px-6 py-4 rounded-2xl rounded-tl-none shadow-md border border-primary/5 rotate-[-5deg]">
-              <span className="text-xl font-bold text-primary">四川话</span>
-            </div>
-          </div>
-
-          {/* 中心麦克风图标 */}
-          <div className="relative w-36 h-36 bg-white rounded-full flex items-center justify-center shadow-xl border border-primary/10 z-10">
-            <span className="material-symbols-outlined text-primary text-[72px]" style={{ fontVariationSettings: "'FILL' 1" }}>mic</span>
-            <div className="absolute inset-0 rounded-full bg-primary/5 animate-ping opacity-75"></div>
-          </div>
-        </div>
+        {/* My Dialect Setting - REMOVED per request */}
       </main>
 
-      <footer className="mt-auto flex flex-col items-center gap-6 relative z-10">
-        <button 
+      <footer className="flex flex-col items-center gap-6 mt-4 pb-8 shrink-0">
+        {/* Progress Dots */}
+        <div className="flex gap-3">
+          <div className="w-3 h-3 rounded-full bg-[#54A0FF]"></div>
+          <div className="w-3 h-3 rounded-full bg-[#54A0FF] ring-4 ring-[#54A0FF]/20"></div>
+          <div className="w-3 h-3 rounded-full bg-[#E0E0E0]"></div>
+          <div className="w-3 h-3 rounded-full bg-[#E0E0E0]"></div>
+        </div>
+
+        <button
           onClick={onNext}
-          className="w-full h-[72px] bg-primary rounded-full flex items-center justify-center text-white text-2xl font-bold gap-2 shadow-lg shadow-primary/30 active:scale-95 transition-all"
+          className="w-full h-[72px] bg-[#54A0FF] rounded-full flex items-center justify-center text-white text-[28px] font-bold gap-3 shadow-lg shadow-[#54A0FF]/30 active:scale-95 transition-all hover:bg-[#2e86de]"
         >
           <span>下一步</span>
-          <span className="material-symbols-outlined text-[28px]">arrow_forward</span>
+          <span className="material-symbols-outlined text-[32px]">arrow_forward</span>
         </button>
       </footer>
     </div>

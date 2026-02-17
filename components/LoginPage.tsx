@@ -211,11 +211,8 @@ const LoginPage: React.FC<Props> = ({ onBack, onLoginSuccess }) => {
         </div>
 
         <div className="grid grid-cols-1 gap-4 mb-8">
-          <button className="flex items-center justify-center gap-3 w-full h-16 bg-white border-2 border-slate-100 rounded-2xl active:scale-[0.98] transition-all hover:bg-slate-50">
-            <div className="w-8 h-8 rounded-full bg-[#07C160] flex items-center justify-center">
-              <span className="material-symbols-outlined text-white text-[18px]">chat_bubble</span>
-            </div>
-            <span className="text-slate-700 font-black">微信一键登录</span>
+          <button className="flex items-center justify-center gap-3 w-full h-16 bg-[#07C160] rounded-2xl active:scale-[0.98] transition-all hover:bg-[#06ae56] shadow-lg shadow-green-500/20">
+            <span className="text-white font-black text-lg">微信一键登录</span>
           </button>
         </div>
 

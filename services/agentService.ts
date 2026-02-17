@@ -98,24 +98,53 @@ export const getAgentPresets = async (options?: TDevModeQuery) => {
   return [];
 }
 
-export const getAgentConfig = async (agentType: string, scene: string) => {
+export const getAgentConfig = async (agentType: string, scene: string, userType?: string) => {
   const accountUid = localStorage.getItem('uid') || 'default';
   const presets = await getAgentPresets({ accountUid });
 
   if (!presets || !Array.isArray(presets) || presets.length === 0) return null;
 
+  // 如果提供了具体的 scene (subType)，则根据 type + subType 过滤
+  if (scene) {
+    const subType = scene.toUpperCase();
+    const type = agentType.toUpperCase();
+    
+    // 1. 优先精确匹配 type + subType，并考虑 userType
+    const exactMatch = presets.find(p => {
+      const matchType = (p as any).type === type;
+      const matchSubType = (p as any).subType === subType;
+      
+      // 如果提供了 userType，则检查目标用户类型是否包含该类型
+      // 假设 agent 配置中有 targetUserTypes 字段，类型为 string[]
+      // 如果没有提供 userType，则默认匹配（或者匹配通用的配置）
+      if (userType) {
+        const targetUserTypes = (p as any).targetUserTypes as string[] | undefined;
+        // 如果配置指定了目标用户类型，则必须包含当前 userType
+        // 如果配置没有指定（undefined 或空数组），则视为通用配置，可以匹配
+        if (targetUserTypes && targetUserTypes.length > 0) {
+          return matchType && matchSubType && targetUserTypes.includes(userType);
+        }
+      }
+      
+      return matchType && matchSubType;
+    });
+    
+    if (exactMatch) return exactMatch;
+  }
+
+  // 2. 降级逻辑：按原有关键字匹配 (用于兼容旧配置或非标准场景)
   const keywords: Record<string, string[]> = {
     'profile': ['profile', '侧写', '引导'],
     'interview': ['interview', '访谈', '回忆'],
-    'casual': ['casual', 'chat', '聊天']
+    'casual': ['casual', 'chat', '聊天', '随便聊聊'] // Add specific agent name
   };
 
-  const targetKeywords = keywords[scene] || [scene];
+  const targetKeywords = keywords[scene] || keywords[scene.toLowerCase()] || [scene.toLowerCase()];
 
   return presets.find(p => {
     const name = (p as any).name?.toLowerCase() || '';
     const displayName = (p as any).display_name?.toLowerCase() || '';
-    return targetKeywords.some(k => name.includes(k) || displayName.includes(k));
+    return targetKeywords.some(k => name.includes(k.toLowerCase()) || displayName.includes(k.toLowerCase()));
   });
 };
 
