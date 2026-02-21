@@ -251,7 +251,7 @@ export const useAgoraVoiceAgent = ({ onTranscript, onAgentStateChange }: UseAgor
             const conversationalAIAPI = ConversationalAIAPI.init({
                 rtcEngine: rtcHelper.client,
                 rtmEngine: rtmEngine,
-                enableLog: true, // Enable logs for debugging
+                enableLog: false, // Enable logs for debugging
                 renderMode: ETranscriptHelperMode.TEXT // Use text mode for subtitles
             });
 
@@ -260,7 +260,7 @@ export const useAgoraVoiceAgent = ({ onTranscript, onAgentStateChange }: UseAgor
             conversationalAIAPI.on(
                 EConversationalAIAPIEvents.TRANSCRIPT_UPDATED,
                 (chatHistory: ITranscriptHelperItem<Partial<IUserTranscription | IAgentTranscription>>[]) => {
-                    // Get the latest item
+                    console.log('[useAgoraVoiceAgent] TRANSCRIPT_UPDATED received', { length: chatHistory.length });
                     const latest = chatHistory[chatHistory.length - 1];
                     if (latest) {
                         const text = latest.text || '';
@@ -272,6 +272,13 @@ export const useAgoraVoiceAgent = ({ onTranscript, onAgentStateChange }: UseAgor
                         } else if (latest.status === ETurnStatus.IN_PROGRESS) {
                             isFinal = false;
                         }
+                        console.log('[useAgoraVoiceAgent] Latest transcript item', {
+                            text,
+                            role,
+                            isFinal,
+                            status: latest.status,
+                            metadata: latest.metadata
+                        });
                         if (text) {
                             onTranscript?.(text, role, isFinal);
                         }
@@ -301,7 +308,7 @@ export const useAgoraVoiceAgent = ({ onTranscript, onAgentStateChange }: UseAgor
                     // Local user
                     if (vol.uid === finalUid || vol.uid === 0) {
                         setLocalVolumeLevel(Math.min(100, Math.round(vol.level)));
-                    } 
+                    }
                     // Remote agent (approximate check)
                     else {
                         setVolumeLevel(Math.min(100, Math.round(vol.level)));
@@ -309,13 +316,17 @@ export const useAgoraVoiceAgent = ({ onTranscript, onAgentStateChange }: UseAgor
                 });
             });
 
-            // Listen for internal debug logs from ConversationalAIAPI
-            conversationalAIAPI.on(
-                EConversationalAIAPIEvents.DEBUG_LOG,
-                (message) => {
-                    console.log(`[ConversationalAIAPI Debug] ${message}`);
-                }
-            );
+            const env: any = (import.meta as any)?.env || {};
+            const enableConversationalDebug =
+                String(env?.VITE_CONVOAI_DEBUG ?? env?.CONVOAI_DEBUG ?? '').toLowerCase() === 'true';
+            if (enableConversationalDebug) {
+                conversationalAIAPI.on(
+                    EConversationalAIAPIEvents.DEBUG_LOG,
+                    (message) => {
+                        console.log(`[ConversationalAIAPI Debug] ${message}`);
+                    }
+                );
+            }
 
             conversationalAIAPI.on(
                 EConversationalAIAPIEvents.AGENT_ERROR,

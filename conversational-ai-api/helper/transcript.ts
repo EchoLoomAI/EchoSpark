@@ -151,6 +151,7 @@ export class MessageService {
       | IMessageState
   >(uid: UID, chunk: string, callback?: (uid: UID, message: T) => void): void {
     try {
+      logger.debug(CONSOLE_LOG_PREFIX, 'raw chunk', { uid, chunk })
       // split chunk by '|'
       const [msgId, partIdx, partSum, partData] = chunk.split('|')
       // convert to TDataChunk
@@ -207,10 +208,10 @@ export class MessageService {
           .map((chunk) => chunk.content)
           .join('')
 
-        // decode message
-        logger.debug(CONSOLE_LOG_PREFIX, '[message]', atob(message))
+        const decodedBase64 = atob(message)
+        logger.debug(CONSOLE_LOG_PREFIX, '[message]', decodedBase64)
 
-        const decodedMessage = JSON.parse(atob(message))
+        const decodedMessage = JSON.parse(decodedBase64)
 
         logger.debug(CONSOLE_LOG_PREFIX, '[decodedMessage]', decodedMessage)
 

@@ -27,6 +27,7 @@ export class RTMHelper {
     app_id: string
     user_id: string
   }): RTMClient {
+    console.log('[RTMHelper] initClient', { app_id, user_id })
     if (this.client) {
       console.warn(
         `${RTMHelper.NAME} already initialized, skipping re-initialization`
@@ -54,6 +55,7 @@ export class RTMHelper {
       throw new NotFoundError('Token is required for RTM login')
     }
     try {
+      console.log('[RTMHelper] login start')
       await this.client.login({ token })
       console.log(`${RTMHelper.NAME} logged in successfully`)
       return this.client
@@ -71,6 +73,7 @@ export class RTMHelper {
       throw new NotFoundError('RTM client is not initialized')
     }
     try {
+      console.log('[RTMHelper] join start', { channel })
       await this.client.subscribe(channel, options)
       this.channel = channel
       console.log(`${RTMHelper.NAME} joined channel: ${channel}`)

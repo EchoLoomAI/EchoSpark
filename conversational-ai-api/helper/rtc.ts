@@ -58,21 +58,38 @@ export class RTCHelper extends EventHelper<
     super()
 
     this.agoraRTC = AgoraRTC
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      // ;(AgoraRTC as any).setParameter('ENABLE_AUDIO_PTS_METADATA', true)
       ; (AgoraRTC as any).setParameter('ENABLE_AUDIO_PTS', true)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       ; (AgoraRTC as any).setParameter('{"rtc.log_external_input": true}')
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      ; (AgoraRTC as any).setLogLevel?.(0)
-    // // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    // ;(AgoraRTC as any).setParameter('ENABLE_AUDIO_RED', true)
-    // // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    // ;(AgoraRTC as any).setParameter('EXPERIMENTS', { enableChorusMode: true })
-
-    // AgoraRTC.enableLogUpload()
-    AgoraRTC.disableLogUpload()
+    const env: any = (import.meta as any)?.env || {}
+    const rawLevel: string | number | undefined = env?.VITE_AGORA_LOG_LEVEL ?? env?.AGORA_LOG_LEVEL
+    let levelNum = 0
+    if (typeof rawLevel === 'string') {
+      const lower = rawLevel.trim().toLowerCase()
+      if (!isNaN(Number(lower))) {
+        levelNum = Number(lower)
+      } else {
+        if (lower === 'none') levelNum = 0
+        else if (lower === 'error') levelNum = 1
+        else if (lower === 'warn' || lower === 'warning') levelNum = 2
+        else if (lower === 'info') levelNum = 3
+        else if (lower === 'debug') levelNum = 4
+      }
+    } else if (typeof rawLevel === 'number') {
+      levelNum = rawLevel
+    }
+    ; (AgoraRTC as any).setLogLevel?.(levelNum)
+    console.log('[RTCHelper] Agora log level config:', {
+      rawLevel,
+      levelNum,
+      envVite: env?.VITE_AGORA_LOG_LEVEL
+    })
+    const uploadRaw = env?.VITE_AGORA_LOG_UPLOAD ?? env?.AGORA_LOG_UPLOAD
+    const enableUpload = String(uploadRaw ?? '').toLowerCase() === 'true'
+    if (enableUpload) {
+      AgoraRTC.enableLogUpload()
+    } else {
+      AgoraRTC.disableLogUpload()
+    }
     this.client = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' })
   }
 
@@ -236,6 +253,7 @@ export class RTCHelper extends EventHelper<
 
   public async createTracks() {
     try {
+      console.log('[RTCHelper] createTracks start');
       const audioTrack = await AgoraRTC.createMicrophoneAudioTrack({
         AEC: true,
         ANS: false,
@@ -256,6 +274,9 @@ export class RTCHelper extends EventHelper<
       this.localTracks.audioTrack = audioTrack
       // must be called after pipe processor
       await this.setDenoiserProcessorLevel()
+      console.log('[RTCHelper] createTracks success', {
+        hasAudioTrack: !!this.localTracks.audioTrack
+      })
     } catch (error) {
       console.error(error, 'Failed to create tracks')
       // console.error( JSON.stringify(error), 'Failed to create tracks')
@@ -460,13 +481,11 @@ export class RTCHelper extends EventHelper<
     user: IAgoraRTCRemoteUser,
     message: string | Uint8Array
   ) {
-    console.log(
-      {
-        user: user,
-        message
-      },
-      '[stream-message] received message'
-    )
+    console.log('[RTCHelper] STREAM_MESSAGE received', {
+      from: user.uid,
+      messageType: typeof message,
+      message
+    })
     this.emit(ERTCEvents.STREAM_MESSAGE, user, message)
   }
 

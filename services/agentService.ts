@@ -108,12 +108,12 @@ export const getAgentConfig = async (agentType: string, scene: string, userType?
   if (scene) {
     const subType = scene.toUpperCase();
     const type = agentType.toUpperCase();
-    
+
     // 1. 优先精确匹配 type + subType，并考虑 userType
     const exactMatch = presets.find(p => {
       const matchType = (p as any).type === type;
       const matchSubType = (p as any).subType === subType;
-      
+
       // 如果提供了 userType，则检查目标用户类型是否包含该类型
       // 假设 agent 配置中有 targetUserTypes 字段，类型为 string[]
       // 如果没有提供 userType，则默认匹配（或者匹配通用的配置）
@@ -125,10 +125,10 @@ export const getAgentConfig = async (agentType: string, scene: string, userType?
           return matchType && matchSubType && targetUserTypes.includes(userType);
         }
       }
-      
+
       return matchType && matchSubType;
     });
-    
+
     if (exactMatch) return exactMatch;
   }
 
@@ -178,9 +178,9 @@ export const getAgentToken = async (
   // Therefore, we force the "Guest/Remote" logic path which uses /api/token.
   const authToken = localStorage.getItem('token');
   const isGuest = !authToken;
-  const forceVoiceAgentBFF = false;
+  const shouldUseRemoteToolbox = isRemoteToolbox;
 
-  if (isRemoteToolbox || isGuest || forceVoiceAgentBFF) {
+  if (shouldUseRemoteToolbox) {
     const appId =
       (import.meta as any)?.env?.VITE_AGORA_APP_ID ||
       (import.meta as any)?.env?.AGORA_APP_ID ||

@@ -20,7 +20,8 @@ interface ChatMessage {
 const InterviewChat: React.FC<Props> = ({ user, onBack }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [showTranscript, setShowTranscript] = useState(false);
-  
+  const [liveTranscript, setLiveTranscript] = useState<string>('');
+
   // State
   const [isMuted, setIsMuted] = useState(false);
   const [contextImage, setContextImage] = useState<string | null>(null);
@@ -40,8 +41,9 @@ const InterviewChat: React.FC<Props> = ({ user, onBack }) => {
     getFrequencyBands
   } = useAgoraVoiceAgent({
     onTranscript: (text, role, isFinal) => {
+      if (!text) return;
       let content = text;
-      
+
       if (role === 'assistant') {
         // Parse $$DISPLAY_PHOTO: keyword$$
         const photoMatch = text.match(/\$\$DISPLAY_PHOTO:\s*(.+?)\$\$/);
@@ -54,12 +56,18 @@ const InterviewChat: React.FC<Props> = ({ user, onBack }) => {
         }
       }
 
+      setLiveTranscript(content);
+
       if (isFinal && content) {
-        setMessages(prev => [...prev, { 
-          id: Date.now().toString(), 
-          role: role === 'assistant' ? 'ai' : 'user', 
-          text: content 
-        }]);
+        setMessages(prev => [
+          ...prev,
+          {
+            id: Date.now().toString(),
+            role: role === 'assistant' ? 'ai' : 'user',
+            text: content
+          }
+        ]);
+        setLiveTranscript('');
       }
     },
     onAgentStateChange: (state) => {
@@ -70,13 +78,13 @@ const InterviewChat: React.FC<Props> = ({ user, onBack }) => {
   const startSession = async () => {
     try {
       if (connectionStatus !== 'idle' && connectionStatus !== 'error') return;
-      
+
       setErrorMsg(null);
 
       // 调用 getAgentConfig，传入场景 'INTERVIEW'，agentType 'CONVERSATIONAL'
       // 同时传入 userType 'INTERVIEW_USER'（示例），与 CasualChat 保持一致的模式
       let config = await getAgentConfig('CONVERSATIONAL', 'INTERVIEW', 'INTERVIEW_USER');
-      
+
       if (!config) {
         // 降级查找
         config = await getAgentConfig('CONVERSATIONAL', 'INTERVIEW');
@@ -152,7 +160,7 @@ const InterviewChat: React.FC<Props> = ({ user, onBack }) => {
   const getStatusText = () => {
     if (connectionStatus === 'connecting') return '连接中...';
     if (connectionStatus === 'error') return '连接失败';
-    
+
     switch (agentState) {
       case 'listening': return '我在听...';
       case 'thinking': return '回忆中...';
@@ -204,27 +212,27 @@ const InterviewChat: React.FC<Props> = ({ user, onBack }) => {
         <div className="flex-1 flex items-center justify-center w-full transition-opacity duration-500">
           {contextImage ? (
             <div className="relative w-80 h-60 md:w-[600px] md:h-[450px] animate-in zoom-in duration-700 flex items-center justify-center">
-               <div className="absolute inset-0 bg-gradient-to-tr from-amber-500/20 to-purple-500/20 rounded-2xl blur-xl"></div>
-               <img 
-                 src={contextImage} 
-                 alt="Context Memory" 
-                 className="relative w-full h-full object-cover rounded-2xl border-2 border-white/10 shadow-2xl z-10"
-               />
-               <div className="absolute bottom-4 left-4 z-20 flex items-center gap-2 bg-black/60 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/10">
-                 <ImageIcon className="w-4 h-4 text-amber-300" />
-                 <span className="text-xs text-amber-100 font-medium">AI 联想记忆</span>
-               </div>
-               {/* Overlay Visualizer when image is present */}
-               <div className="absolute -bottom-16 left-0 right-0 h-12 flex items-center justify-center">
-                  <VoiceVisualizer
-                    state={agentState}
-                    barCount={20}
-                    barColor="#fbbf24" 
-                    volume={(agentState === 'speaking' ? volumeLevel : localVolumeLevel) / 100}
-                    getFrequencyBands={getFrequencyBands}
-                    onInterrupt={interrupt}
-                  />
-               </div>
+              <div className="absolute inset-0 bg-gradient-to-tr from-amber-500/20 to-purple-500/20 rounded-2xl blur-xl"></div>
+              <img
+                src={contextImage}
+                alt="Context Memory"
+                className="relative w-full h-full object-cover rounded-2xl border-2 border-white/10 shadow-2xl z-10"
+              />
+              <div className="absolute bottom-4 left-4 z-20 flex items-center gap-2 bg-black/60 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/10">
+                <ImageIcon className="w-4 h-4 text-amber-300" />
+                <span className="text-xs text-amber-100 font-medium">AI 联想记忆</span>
+              </div>
+              {/* Overlay Visualizer when image is present */}
+              <div className="absolute -bottom-16 left-0 right-0 h-12 flex items-center justify-center">
+                <VoiceVisualizer
+                  state={agentState}
+                  barCount={20}
+                  barColor="#fbbf24"
+                  volume={(agentState === 'speaking' ? volumeLevel : localVolumeLevel) / 100}
+                  getFrequencyBands={getFrequencyBands}
+                  onInterrupt={interrupt}
+                />
+              </div>
             </div>
           ) : (
             <div className="relative w-72 h-72 flex items-center justify-center mb-12">
@@ -266,12 +274,18 @@ const InterviewChat: React.FC<Props> = ({ user, onBack }) => {
           )}
         </div>
 
+        {liveTranscript && (
+          <div className="mt-4 px-6 max-w-2xl text-center text-sm text-slate-100/90">
+            {liveTranscript}
+          </div>
+        )}
+
         {/* Status Text (Error Only) */}
         <div className="text-center space-y-2 z-10 mb-24 absolute top-24 left-0 right-0 pointer-events-none">
           {errorMsg && (
             <div className="space-y-3 bg-red-500/90 p-4 rounded-xl backdrop-blur-md pointer-events-auto inline-block text-white shadow-lg">
-               {errorMsg}
-               <button onClick={startSession} className="block mt-2 text-xs underline">重试</button>
+              {errorMsg}
+              <button onClick={startSession} className="block mt-2 text-xs underline">重试</button>
             </div>
           )}
         </div>
@@ -324,7 +338,7 @@ const InterviewChat: React.FC<Props> = ({ user, onBack }) => {
           <div className="relative flex-1 min-w-0 h-16 sm:h-20 px-3 sm:px-6 rounded-full bg-slate-900/90 flex items-center justify-between gap-2 sm:gap-6 border border-slate-700/50 shadow-[0_0_20px_rgba(0,0,0,0.3)] backdrop-blur-md overflow-hidden">
             {/* Tech Glow Effect */}
             <div className="absolute inset-0 bg-gradient-to-r from-amber-500/10 via-rose-500/10 to-amber-500/10 pointer-events-none" />
-            
+
             {/* Mic Toggle */}
             <button
               onClick={toggleMute}
