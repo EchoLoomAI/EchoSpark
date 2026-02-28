@@ -8,6 +8,7 @@ export default defineConfig(({ mode }) => {
     server: {
       port: 3000,
       host: '0.0.0.0',
+      allowedHosts: ['www.echoloom.cn', 'echoloom.cn', '1.13.142.70','localhost', '127.0.0.1', '.ngrok-free.app'], // 允许的域名列表
       proxy: {
         '/api': {
           target: 'http://127.0.0.1:3001', // EchoHub BFF Service
