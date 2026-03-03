@@ -33,14 +33,14 @@ import {
   localResSchema,
   type SIP_ERROR_CODE
 } from '../constants'
-import { generateDevModeQuery } from '../lib/dev'
+import { generateDevModeQuery } from '../lib/debug-helper'
 import { genUUID } from '../lib/utils'
 import type {
   IAgentPreset,
   IUploadLogInput,
   IUserInfoInput
 } from '../type/agent'
-import type { TDevModeQuery } from '../type/dev'
+import type { TDevModeQuery } from '../type/debug-helper'
 import api from './api'
 
 export class ResourceLimitError extends Error {

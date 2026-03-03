@@ -7,15 +7,30 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
 
   let httpsConfig = undefined;
-  if (env.SSL_KEY_FILE && env.SSL_CERT_FILE) {
+
+  // Prioritize local certs if they exist
+  const localKeyPath = path.resolve('certs/key.pem');
+  const localCertPath = path.resolve('certs/cert.pem');
+
+  if (fs.existsSync(localKeyPath) && fs.existsSync(localCertPath)) {
+    try {
+      httpsConfig = {
+        key: fs.readFileSync(localKeyPath),
+        cert: fs.readFileSync(localCertPath),
+      };
+      console.log(`SSL enabled with local certs: ${localCertPath}`);
+    } catch (e) {
+      console.error('Failed to load local SSL certificates:', e);
+    }
+  } else if (env.SSL_KEY_FILE && env.SSL_CERT_FILE) {
     try {
       httpsConfig = {
         key: fs.readFileSync(env.SSL_KEY_FILE),
         cert: fs.readFileSync(env.SSL_CERT_FILE),
       };
-      console.log(`SSL enabled with certs: ${env.SSL_CERT_FILE}`);
+      console.log(`SSL enabled with env certs: ${env.SSL_CERT_FILE}`);
     } catch (e) {
-      console.error('Failed to load SSL certificates:', e);
+      console.error('Failed to load SSL certificates from env:', e);
     }
   }
 
