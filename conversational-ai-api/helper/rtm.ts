@@ -10,6 +10,7 @@ export class RTMHelper {
   private channel: string | null = null
 
   public client: RTMClient | null = null
+  private _cleanupPromise: Promise<void> | null = null
 
   public static getInstance(): RTMHelper {
     if (!RTMHelper._instance) {
@@ -48,6 +49,18 @@ export class RTMHelper {
   }
 
   public async login(token?: string | null): Promise<RTMClient> {
+    // Wait for any pending cleanup to finish
+    if (this._cleanupPromise) {
+      console.log('[RTMHelper] Waiting for pending cleanup before login...')
+      try {
+        await this._cleanupPromise
+      } catch (e) {
+        console.warn('[RTMHelper] Pending cleanup failed (ignored):', e)
+      } finally {
+        this._cleanupPromise = null
+      }
+    }
+
     if (!this.client) {
       throw new NotFoundError('RTM client is not initialized')
     }
@@ -56,7 +69,14 @@ export class RTMHelper {
     }
     try {
       console.log('[RTMHelper] login start')
-      await this.client.login({ token })
+
+      // Add timeout for login
+      const loginPromise = this.client.login({ token })
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('RTM Login Timeout (10s)')), 10000)
+      )
+
+      await Promise.race([loginPromise, timeoutPromise])
       console.log(`${RTMHelper.NAME} logged in successfully`)
       return this.client
     } catch (error) {
@@ -92,20 +112,25 @@ export class RTMHelper {
     const clientToCleanup = this.client;
     this.client = null;
 
-    if (this.channel) {
-      try {
-        await clientToCleanup.unsubscribe(this.channel)
-      } catch (error) {
-        console.warn(`${RTMHelper.NAME} unsubscribe failed:`, error)
+    // Store cleanup promise to block subsequent logins
+    this._cleanupPromise = (async () => {
+      if (this.channel) {
+        try {
+          await clientToCleanup.unsubscribe(this.channel)
+        } catch (error) {
+          console.warn(`${RTMHelper.NAME} unsubscribe failed:`, error)
+        }
+        this.channel = null
       }
-      this.channel = null
-    }
 
-    try {
-      await clientToCleanup.logout()
-      console.log(`${RTMHelper.NAME} logged out successfully`)
-    } catch (error) {
-      console.warn(`${RTMHelper.NAME} logout failed:`, error)
-    }
+      try {
+        await clientToCleanup.logout()
+        console.log(`${RTMHelper.NAME} logged out successfully`)
+      } catch (error) {
+        console.warn(`${RTMHelper.NAME} logout failed:`, error)
+      }
+    })();
+
+    await this._cleanupPromise;
   }
 }
