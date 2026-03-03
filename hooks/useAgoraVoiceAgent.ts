@@ -342,7 +342,7 @@ export const useAgoraVoiceAgent = ({ onTranscript, onAgentStateChange }: UseAgor
             // 8. Setup Audio & Join RTC
             console.log('[useAgoraVoiceAgent] 8. Setting up Audio & Joining RTC');
             // Temporarily disable denoiser to rule out WASM/AudioContext issues causing ICE timeout
-            // await rtcHelper.initDenoiserProcessor();
+            await rtcHelper.initDenoiserProcessor();
             const tracks = await rtcHelper.createTracks();
             localAudioTrack.current = tracks.audioTrack || null;
             setActiveAudioTrack(tracks.audioTrack || null);

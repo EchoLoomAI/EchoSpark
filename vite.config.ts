@@ -64,6 +64,8 @@ export default defineConfig(({ mode }) => {
             'vendor-ui': ['lucide-react', 'sonner', 'clsx', 'tailwind-merge'],
             'vendor-agora': ['agora-rtc-sdk-ng', 'agora-rtm'],
             'vendor-utils': ['axios', 'lodash', 'zod', 'js-cookie'],
+            'vendor-genai': ['@google/genai'],
+            'vendor-denoiser': ['agora-conversational-ai-denoiser'],
           }
         }
       }

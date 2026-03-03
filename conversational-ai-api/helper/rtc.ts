@@ -1,7 +1,6 @@
-import {
-  AIDenoiserExtension,
-  type AIDenoiserProcessorLevel,
-  type IAIDenoiserProcessor
+import type {
+  AIDenoiserProcessorLevel,
+  IAIDenoiserProcessor
 } from 'agora-conversational-ai-denoiser'
 import AgoraRTC, {
   type ConnectionState,
@@ -187,6 +186,7 @@ export class RTCHelper extends EventHelper<
       return
     }
     console.log('[DenoiserProcessor]', 'Initializing')
+    const { AIDenoiserExtension } = await import('agora-conversational-ai-denoiser')
     const denoiser = new AIDenoiserExtension({
       assetsPath
     })
