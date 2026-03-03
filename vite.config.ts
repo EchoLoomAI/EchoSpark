@@ -71,6 +71,25 @@ export default defineConfig(({ mode }) => {
         '@': path.resolve(__dirname, '.'),
       }
     },
+    optimizeDeps: {
+      include: [
+        'react',
+        'react-dom',
+        'swr',
+        'lucide-react',
+        'sonner',
+        'clsx',
+        'tailwind-merge',
+        'agora-rtc-sdk-ng',
+        'agora-rtm',
+        'axios',
+        'lodash',
+        'zod',
+        'js-cookie',
+        '@google/genai',
+        'agora-conversational-ai-denoiser'
+      ]
+    },
     build: {
       rollupOptions: {
         output: {
