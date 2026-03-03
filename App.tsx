@@ -1,18 +1,19 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import { AppStep, UserProfile } from './types';
 import SplashPage from './components/SplashPage';
-import OnboardingStep1 from './components/OnboardingStep1';
-import OnboardingStep2 from './components/OnboardingStep2';
-import OnboardingStep3 from './components/OnboardingStep3';
-import OnboardingStep4 from './components/OnboardingStep4';
-import LoginPage from './components/LoginPage';
-import VoiceProfileCollection from './components/VoiceProfileCollection';
-import Dashboard from './components/Dashboard';
-import CasualChat from './components/CasualChat';
-import InterviewChat from './components/InterviewChat';
-import FamilyGallery from './components/FamilyGallery';
-import UserMenu from './components/UserMenu';
+
+const OnboardingStep1 = React.lazy(() => import('./components/OnboardingStep1'));
+const OnboardingStep2 = React.lazy(() => import('./components/OnboardingStep2'));
+const OnboardingStep3 = React.lazy(() => import('./components/OnboardingStep3'));
+const OnboardingStep4 = React.lazy(() => import('./components/OnboardingStep4'));
+const LoginPage = React.lazy(() => import('./components/LoginPage'));
+const VoiceProfileCollection = React.lazy(() => import('./components/VoiceProfileCollection'));
+const Dashboard = React.lazy(() => import('./components/Dashboard'));
+const CasualChat = React.lazy(() => import('./components/CasualChat'));
+const InterviewChat = React.lazy(() => import('./components/InterviewChat'));
+const FamilyGallery = React.lazy(() => import('./components/FamilyGallery'));
+const UserMenu = React.lazy(() => import('./components/UserMenu'));
 
 const App: React.FC = () => {
   const [currentStep, setCurrentStep] = useState<AppStep>(AppStep.SPLASH);
@@ -92,7 +93,7 @@ const App: React.FC = () => {
         const raw = window.localStorage.getItem(`echospark_user_profile_${phone}`);
         stored = raw ? JSON.parse(raw) : null;
       }
-    } catch {}
+    } catch { }
     if (stored) {
       setUser({ phoneNumber: phone, ...stored });
     } else {
@@ -109,7 +110,7 @@ const App: React.FC = () => {
         const key = `echospark_user_profile_${merged.phoneNumber}`;
         window.localStorage.setItem(key, JSON.stringify(merged));
       }
-    } catch {}
+    } catch { }
     setCurrentStep(AppStep.DASHBOARD);
   };
 
@@ -135,6 +136,7 @@ const App: React.FC = () => {
   return (
     <div className="w-full h-[100dvh] bg-white overflow-hidden relative">
       {currentStep === AppStep.SPLASH && <SplashPage />}
+      <Suspense fallback={<div className="flex items-center justify-center w-full h-full text-slate-400">Loading...</div>}>
         {currentStep === AppStep.ONBOARDING_1 && <OnboardingStep1 onNext={handleNext} />}
         {currentStep === AppStep.ONBOARDING_2 && <OnboardingStep2 onNext={handleNext} onBack={handleBack} />}
         {currentStep === AppStep.ONBOARDING_3 && <OnboardingStep3 onNext={handleNext} onBack={handleBack} />}
@@ -144,9 +146,9 @@ const App: React.FC = () => {
           <VoiceProfileCollection onComplete={handleProfileComplete} />
         )}
         {currentStep === AppStep.DASHBOARD && (
-          <Dashboard 
-            user={user} 
-            onNavigate={handleDashboardNavigate} 
+          <Dashboard
+            user={user}
+            onNavigate={handleDashboardNavigate}
           />
         )}
         {currentStep === AppStep.CASUAL_CHAT && (
@@ -159,8 +161,9 @@ const App: React.FC = () => {
           <FamilyGallery onBack={handleBack} />
         )}
         {currentStep === AppStep.USER_MENU && (
-        <UserMenu user={user} onBack={handleBack} onLogout={handleLogout} />
-      )}
+          <UserMenu user={user} onBack={handleBack} onLogout={handleLogout} />
+        )}
+      </Suspense>
     </div>
   );
 };
