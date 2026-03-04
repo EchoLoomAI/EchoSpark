@@ -1,6 +1,8 @@
 import path from 'path';
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
+import viteCompression from 'vite-plugin-compression';
+import { visualizer } from 'rollup-plugin-visualizer';
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
@@ -30,7 +32,20 @@ export default defineConfig(({ mode }) => {
         },
       },
     },
-    plugins: [react()],
+    plugins: [
+      react(),
+      viteCompression({
+        algorithm: 'gzip',
+        ext: '.gz',
+        deleteOriginFile: false,
+        threshold: 10240, // Compress files larger than 10KB
+      }),
+      visualizer({
+        open: false,
+        gzipSize: true,
+        brotliSize: true,
+      }),
+    ],
     envPrefix: ['VITE_', 'NEXT_PUBLIC_'],
     define: {
       'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
@@ -72,7 +87,8 @@ export default defineConfig(({ mode }) => {
           manualChunks: {
             'vendor-react': ['react', 'react-dom', 'swr'],
             'vendor-ui': ['lucide-react', 'sonner', 'clsx', 'tailwind-merge'],
-            'vendor-agora': ['agora-rtc-sdk-ng', 'agora-rtm'],
+            'vendor-rtc': ['agora-rtc-sdk-ng'],
+            'vendor-rtm': ['agora-rtm'],
             'vendor-utils': ['axios', 'lodash', 'zod', 'js-cookie'],
             'vendor-genai': ['@google/genai'],
             'vendor-denoiser': ['agora-conversational-ai-denoiser'],
