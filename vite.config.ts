@@ -34,7 +34,8 @@ export default defineConfig(({ mode }) => {
     envPrefix: ['VITE_', 'NEXT_PUBLIC_'],
     define: {
       'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-      'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY)
+      'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
+      'process.env': {} // Polyfill for libraries expecting process.env
     },
     resolve: {
       alias: {
