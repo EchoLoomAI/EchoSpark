@@ -2,6 +2,7 @@
 import React, { useState, useEffect, Suspense } from 'react';
 import { AppStep, UserProfile } from './types';
 import SplashPage from './components/SplashPage';
+import SkeletonLoading from './components/SkeletonLoading';
 
 const OnboardingStep1 = React.lazy(() => import('./components/OnboardingStep1'));
 const OnboardingStep2 = React.lazy(() => import('./components/OnboardingStep2'));
@@ -143,7 +144,7 @@ const App: React.FC = () => {
   return (
     <div className="w-full h-[100dvh] bg-white overflow-hidden relative">
       {currentStep === AppStep.SPLASH && <SplashPage />}
-      <Suspense fallback={<div className="flex items-center justify-center w-full h-full text-slate-400">Loading...</div>}>
+      <Suspense fallback={<SkeletonLoading />}>
         {currentStep === AppStep.ONBOARDING_1 && <OnboardingStep1 onNext={handleNext} />}
         {currentStep === AppStep.ONBOARDING_2 && <OnboardingStep2 onNext={handleNext} onBack={handleBack} />}
         {currentStep === AppStep.ONBOARDING_3 && <OnboardingStep3 onNext={handleNext} onBack={handleBack} />}
