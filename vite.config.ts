@@ -35,7 +35,8 @@ export default defineConfig(({ mode }) => {
     define: {
       'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
       'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-      'process.env': {} // Polyfill for libraries expecting process.env
+      'process.env': {}, // Polyfill for libraries expecting process.env
+      'process': { env: {} } // Polyfill for libraries expecting global process
     },
     resolve: {
       alias: {
