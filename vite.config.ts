@@ -45,6 +45,8 @@ export default defineConfig(({ mode }) => {
       include: [
         'react',
         'react-dom',
+        'react/jsx-runtime',
+        'react/jsx-dev-runtime',
         'swr',
         'lucide-react',
         'sonner',
