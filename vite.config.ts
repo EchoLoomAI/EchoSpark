@@ -44,6 +44,7 @@ export default defineConfig(({ mode }) => {
         open: false,
         gzipSize: true,
         brotliSize: true,
+        filename: 'stats.html',
       }),
     ],
     envPrefix: ['VITE_', 'NEXT_PUBLIC_'],
