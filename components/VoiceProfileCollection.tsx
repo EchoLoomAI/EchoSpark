@@ -89,6 +89,12 @@ const VoiceProfileCollection: React.FC<Props> = ({ onComplete }) => {
   });
 
   const startSession = async () => {
+    // Check current status to prevent race conditions or double submission
+    if (connectionStatus === 'connecting' || connectionStatus === 'speaking' || connectionStatus === 'listening' || connectionStatus === 'thinking') {
+      console.log('[VoiceProfile] Session already active/connecting, skipping start.');
+      return;
+    }
+
     // Use random number for Agora UID (Standard Mode) to avoid string UID issues
     const uid = Math.floor(Math.random() * 100000) + 100000;
 
@@ -136,6 +142,8 @@ const VoiceProfileCollection: React.FC<Props> = ({ onComplete }) => {
     } catch (err) {
       console.warn('[VoiceProfile] Failed to match agent, using default fallback', err);
     }
+
+    console.log('[VoiceProfile] Starting Session with:', { uid, channelName, agentId });
 
     // Start Session with simplified configuration
     // The hook will handle token generation using the provided agentId and uid
