@@ -11,7 +11,6 @@ import {
 } from 'lucide-react';
 import { VoiceVisualizer } from './VoiceVisualizer';
 import { useAgoraVoiceAgent, AgentState } from '../hooks/useAgoraVoiceAgent';
-import { genUserId } from '@/lib/utils';
 import { matchAgent } from '../services/agentService';
 
 interface Props {
@@ -90,13 +89,11 @@ const VoiceProfileCollection: React.FC<Props> = ({ onComplete }) => {
   });
 
   const startSession = async () => {
-    // Use stored string UID if available (Standard Mode), otherwise generate random number (Guest Mode)
-    const uidStr = localStorage.getItem('uid');
-    const uid = uidStr || genUserId();
+    // Use random number for Agora UID (Standard Mode) to avoid string UID issues
+    const uid = Math.floor(Math.random() * 100000) + 100000;
 
-    // Ensure channel name is deterministic based on scenario and user ID
-    const scenarioName = 'voice-profile';
-    const channelName = `${scenarioName}-${uid}`;
+    // Ensure channel name is unique and deterministic based on scenario
+    const channelName = `profile_${uid}_${Date.now()}`;
 
     // Protocol instruction to ensure the agent outputs data in the format frontend expects
     const protocolInstruction = `
@@ -111,11 +108,6 @@ const VoiceProfileCollection: React.FC<Props> = ({ onComplete }) => {
     // Try to match a dynamic agent from backend
     let agentId: string | undefined;
     let finalSystemPrompt = protocolInstruction;
-    let agentChannel = channelName;
-    let agentAppId: string | undefined;
-    let agentAppCert: string | undefined;
-    let agentProperties: any | undefined;
-    let agentModelId: string | undefined;
 
     try {
       const agent = await matchAgent({
@@ -127,24 +119,7 @@ const VoiceProfileCollection: React.FC<Props> = ({ onComplete }) => {
 
       if (agent) {
         agentId = agent.id;
-        agentModelId = (agent as any).model_id || agent.modelId;
-        // Robustly extract properties: try top-level properties first, then config.properties
-        agentProperties = (agent as any).properties || agent.config?.properties;
         console.log('[VoiceProfile] Matched Agent:', agent.name);
-        console.log('[VoiceProfile] Extracted Properties:', agentProperties ? Object.keys(agentProperties) : 'None');
-
-        // Extract config for token generation
-        // channel and numericUid corresponds to config object's channel and agent_rtc_uid
-        // but for token generation we use the channel from config and the User's UID (uid)
-        if (agent.config?.properties?.channel) {
-          agentChannel = agent.config.properties.channel;
-        }
-
-        // Extract AppID and AppCert from common
-        if (agent.config?.properties?.common) {
-          agentAppId = agent.config.properties.common.agora_app_id;
-          agentAppCert = agent.config.properties.common.agora_app_certificate;
-        }
 
         // Extract system prompt from agent config
         // Assuming structure: agent.config.properties.llm.system_messages[0].content
@@ -162,63 +137,13 @@ const VoiceProfileCollection: React.FC<Props> = ({ onComplete }) => {
       console.warn('[VoiceProfile] Failed to match agent, using default fallback', err);
     }
 
-    // Generate Token using the extracted credentials if available
-    // We need to pass these to startAgoraSession -> useAgoraVoiceAgent -> rtcHelper.retrieveToken
-    // But useAgoraVoiceAgent/rtcHelper might not accept custom appId/cert directly in `options`.
-    // However, rtcHelper.retrieveToken calls `/v1/token`.
-    // We can pass `appId` and `appCertificate` in the `options` object if we modify the hook,
-    // OR we can rely on the fact that `matchAgent` returned the config, so we can manualy call token API here
-    // and pass the token to `startAgoraSession`.
-    // Let's assume `startAgoraSession` can accept a pre-generated token or we modify the hook to accept custom credentials.
-    // Given the constraints, passing `token` to `startAgoraSession` is cleanest if supported.
-    // Checking useAgoraVoiceAgent: startSession(uid, channel, options). Options can have `token`.
-
-    let token: string | undefined;
-    let appId: string | undefined;
-
-    if (agentAppId && agentAppCert) {
-      const authToken = localStorage.getItem('token');
-      if (authToken) {
-        try {
-          // Manually call BFF token endpoint with custom credentials
-          const res = await fetch(`${import.meta.env.VITE_API_BASE_URL || ''}/v1/token`, {
-            method: 'POST',
-            headers: { 
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${authToken}`
-            },
-            body: JSON.stringify({
-              channel: agentChannel,
-              uid: uid,
-              appId: agentAppId,
-              appCertificate: agentAppCert
-            })
-          });
-          const data = await res.json();
-          if (data.code === 0 && data.data?.token) {
-            token = data.data.token;
-            appId = data.data.appId;
-            console.log('[VoiceProfile] Generated custom token using agent config');
-          }
-        } catch (e) {
-          console.error('[VoiceProfile] Failed to generate custom token', e);
-        }
-      } else {
-        console.warn('[VoiceProfile] No auth token found, skipping custom token generation. Will use default guest flow.');
-      }
-    }
-
-    // Pass scenario='profile' to trigger dynamic matching in the hook
-    // Cast to any to bypass strict type check until hook types are updated
-    await startAgoraSession(uid, agentChannel, {
+    // Start Session with simplified configuration
+    // The hook will handle token generation using the provided agentId and uid
+    await startAgoraSession(uid, channelName, {
       systemPrompt: finalSystemPrompt,
       // @ts-ignore
       scenario: 'profile',
-      agentId: agentId,
-      token: token, // Pass pre-generated token if available
-      appId: appId,  // Pass appId if available
-      properties: agentProperties, // Pass full properties to hook
-      modelId: agentModelId // Pass modelId to ensure correct LLM config resolution
+      agentId: agentId
     });
   };
 
@@ -507,7 +432,7 @@ const VoiceProfileCollection: React.FC<Props> = ({ onComplete }) => {
                 <div className="relative flex-1 min-w-0 h-16 sm:h-20 px-3 sm:px-6 rounded-full bg-slate-900/90 flex items-center justify-between gap-2 sm:gap-6 border border-slate-700/50 shadow-[0_0_20px_rgba(0,0,0,0.3)] backdrop-blur-md overflow-hidden">
                   {/* Tech Glow Effect */}
                   <div className="absolute inset-0 bg-gradient-to-r from-blue-500/10 via-purple-500/10 to-blue-500/10 pointer-events-none" />
-                  
+
                   {/* Mic Toggle */}
                   <button
                     onClick={toggleMute}
