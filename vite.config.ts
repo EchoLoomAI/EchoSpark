@@ -40,12 +40,12 @@ export default defineConfig(({ mode }) => {
         deleteOriginFile: false,
         threshold: 10240, // Compress files larger than 10KB
       }),
-      visualizer({
-        open: false,
-        gzipSize: true,
-        brotliSize: true,
-        filename: 'stats.html',
-      }),
+      // visualizer({
+      //   open: false,
+      //   gzipSize: true,
+      //   brotliSize: true,
+      //   filename: 'stats.html',
+      // }),
     ],
     envPrefix: ['VITE_', 'NEXT_PUBLIC_'],
     define: {
