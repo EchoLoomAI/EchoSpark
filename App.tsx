@@ -26,6 +26,13 @@ const App: React.FC = () => {
       }, 2500);
       return () => clearTimeout(timer);
     }
+
+    // Prefetch VoiceProfileCollection (and its heavy Agora dependencies)
+    // when user enters the onboarding flow. This ensures the 3MB+ chunks
+    // are downloaded in the background while the user reads the onboarding slides.
+    if (currentStep === AppStep.ONBOARDING_1) {
+      import('./components/VoiceProfileCollection').catch(() => { });
+    }
   }, [currentStep]);
 
   const handleNext = () => {
