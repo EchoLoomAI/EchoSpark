@@ -60,9 +60,11 @@ export default defineConfig(({ mode }) => {
         'js-cookie',
         '@google/genai',
         'agora-conversational-ai-denoiser'
-      ]
+      ],
+      exclude: []
     },
     build: {
+      chunkSizeWarningLimit: 3000,
       rollupOptions: {
         output: {
           manualChunks: {
