@@ -29,18 +29,18 @@ const SkeletonLoading: React.FC = () => {
       <div className="flex-1 flex flex-col space-y-8 mt-8">
         {/* Large Hero Block */}
         <div className="h-48 w-full bg-slate-200 rounded-2xl"></div>
-        
+
         {/* Text Lines */}
         <div className="space-y-4 px-2">
           <div className="h-4 w-3/4 bg-slate-200 rounded"></div>
           <div className="h-4 w-full bg-slate-200 rounded"></div>
           <div className="h-4 w-5/6 bg-slate-200 rounded"></div>
         </div>
-        
+
         {/* Grid Block */}
         <div className="mt-4 grid grid-cols-2 gap-4">
-           <div className="h-32 bg-slate-200 rounded-xl"></div>
-           <div className="h-32 bg-slate-200 rounded-xl"></div>
+          <div className="h-32 bg-slate-200 rounded-xl"></div>
+          <div className="h-32 bg-slate-200 rounded-xl"></div>
         </div>
       </div>
 
