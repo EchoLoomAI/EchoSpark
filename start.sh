@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Start PM2 with production config
-pm2 start ecosystem.config.js
+pm2 start ecosystem.config.cjs
 
 echo "EchoSpark started in production mode."
 echo "Use 'pm2 status' to check service status."
