@@ -16,6 +16,7 @@ module.exports = {
         // Log configuration
         log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
         merge_logs: true,
+        namespace: 'EchoSpark',
         // PID file configuration
         pid_file: path.resolve(__dirname, 'EchoSpark.pid')
     }]
