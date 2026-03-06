@@ -117,6 +117,8 @@ export class RTCHelper extends EventHelper<
       this.rtmToken = resData.data.rtmToken ?? null
       if (resData.data.uid !== undefined) {
         const val = resData.data.uid
+        // Strictly update userId based on what server returns
+        // If server returns numeric UID, we MUST use it because Token is signed against it.
         if (typeof val === 'number') {
           this.userId = val
         } else if (
